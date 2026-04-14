@@ -4,9 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>YourBright - 履歴書</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/docx/8.2.3/docx.min.js"></script>
+<script src="https://unpkg.com/docx@8.2.3/build/index.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+// Fallback: try alternative CDN if docx not loaded
+if(typeof docx==='undefined'){
+  document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/docx@8.2.3/build/index.js"><\/scr'+'ipt>');
+}
+</script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',Tahoma,sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
@@ -603,23 +609,39 @@ function showStep(){
   if(inp){setTimeout(()=>inp.focus(),80);if(f.type!=='textarea')inp.addEventListener('keydown',e=>{if(e.key==='Enter')nextQuestion()});}
 }
 
+// ===== FILE PREVIEW HELPER =====
+// Store file names for non-image files
+let fileNames={};
+function isImage(dataUrl){return dataUrl && dataUrl.startsWith('data:image/');}
+function filePreview(dataUrl,key,label){
+  if(!dataUrl) return '';
+  if(isImage(dataUrl)) return `<img src="${dataUrl}">`;
+  // Non-image file: show icon + filename
+  const name=fileNames[key]||'file';
+  const ext=name.split('.').pop().toLowerCase();
+  const icon=ext==='pdf'?'📄':ext==='doc'||ext==='docx'?'📝':'📎';
+  return `<div style="font-size:24px">${icon}</div><div style="font-size:10px;color:#333;word-break:break-all;max-width:90px">${name}</div>`;
+}
+
 // ===== ZAIRYU CARD UPLOAD =====
 function buildZairyuUpload(){
   return `<div class="q-subtitle">${t('zairyu')}</div>
   <div class="upload-grid">
     <div class="upload-card ${zairyuFront?'has-file':''}" onclick="this.querySelector('input').click()">
-      <input type="file" accept="image/*" onchange="handleZairyu('front',this)">
-      ${zairyuFront?`<img src="${zairyuFront}"><div class="upload-status">${t('uploaded')}</div>`:`<div class="upload-icon">🪪</div><div class="upload-label">${t('zairyuFront')}<br><small>${t('uploadClick')}</small></div>`}
+      <input type="file" accept="image/*,.pdf,.doc,.docx" onchange="handleZairyu('front',this)">
+      ${zairyuFront?`${filePreview(zairyuFront,'zairyuFront',t('zairyuFront'))}<div class="upload-status">${t('uploaded')}</div>`:`<div class="upload-icon">🪪</div><div class="upload-label">${t('zairyuFront')}<br><small>${t('uploadClick')}</small></div>`}
     </div>
     <div class="upload-card ${zairyuBack?'has-file':''}" onclick="this.querySelector('input').click()">
-      <input type="file" accept="image/*" onchange="handleZairyu('back',this)">
-      ${zairyuBack?`<img src="${zairyuBack}"><div class="upload-status">${t('uploaded')}</div>`:`<div class="upload-icon">🪪</div><div class="upload-label">${t('zairyuBack')}<br><small>${t('uploadClick')}</small></div>`}
+      <input type="file" accept="image/*,.pdf,.doc,.docx" onchange="handleZairyu('back',this)">
+      ${zairyuBack?`${filePreview(zairyuBack,'zairyuBack',t('zairyuBack'))}<div class="upload-status">${t('uploaded')}</div>`:`<div class="upload-icon">🪪</div><div class="upload-label">${t('zairyuBack')}<br><small>${t('uploadClick')}</small></div>`}
     </div>
   </div>`;
 }
 
 function handleZairyu(side,input){
   const file=input.files[0];if(!file)return;
+  const key=side==='front'?'zairyuFront':'zairyuBack';
+  fileNames[key]=file.name;
   const reader=new FileReader();
   reader.onload=e=>{
     if(side==='front')zairyuFront=e.target.result;
@@ -640,8 +662,8 @@ function buildCertUpload(){
   let h=`<div class="q-subtitle">${t('cert_photos')}</div><div class="upload-grid">`;
   certs.forEach(c=>{
     h+=`<div class="upload-card ${c.data?'has-file':''}" onclick="this.querySelector('input').click()">
-      <input type="file" accept="image/*" onchange="handleCert('${c.key}',this)">
-      ${c.data?`<img src="${c.data}"><div class="upload-status">${c.label}<br>${t('uploaded')}</div>`:`<div class="upload-icon">${c.icon}</div><div class="upload-label">${c.label}<br><small>${t('uploadClick')}</small></div>`}
+      <input type="file" accept="image/*,.pdf,.doc,.docx" onchange="handleCert('${c.key}',this)">
+      ${c.data?`${filePreview(c.data,c.key,c.label)}<div class="upload-status">${c.label}<br>${t('uploaded')}</div>`:`<div class="upload-icon">${c.icon}</div><div class="upload-label">${c.label}<br><small>${t('uploadClick')}</small></div>`}
     </div>`;
   });
   h+='</div>';
@@ -650,6 +672,7 @@ function buildCertUpload(){
 
 function handleCert(key,input){
   const file=input.files[0];if(!file)return;
+  fileNames[key]=file.name;
   const reader=new FileReader();
   reader.onload=e=>{
     if(key==='certSenmon')certSenmon=e.target.result;
@@ -986,11 +1009,18 @@ function dataURLtoBlob(dataUrl){
   return new Blob([arr],{type:mime});
 }
 
-function getExt(dataUrl){
+function getExt(dataUrl,key){
+  // If we have the original filename, use its extension
+  if(key && fileNames[key]){
+    const ext=fileNames[key].split('.').pop().toLowerCase();
+    if(ext)return ext;
+  }
   const mime=dataUrl.split(',')[0].match(/:(.*?);/)[1];
   if(mime.includes('png'))return'png';
   if(mime.includes('jpeg')||mime.includes('jpg'))return'jpg';
   if(mime.includes('webp'))return'webp';
+  if(mime.includes('pdf'))return'pdf';
+  if(mime.includes('word')||mime.includes('document'))return'docx';
   return'jpg';
 }
 
@@ -1007,12 +1037,12 @@ async function createZip(){
   const folder=zip.folder(`写真_${name}`);
 
   if(photoData){folder.file(`証明写真_3x4.${getExt(photoData)}`,dataURLtoBlob(photoData));}
-  if(zairyuFront){folder.file(`在留カード_表.${getExt(zairyuFront)}`,dataURLtoBlob(zairyuFront));}
-  if(zairyuBack){folder.file(`在留カード_裏.${getExt(zairyuBack)}`,dataURLtoBlob(zairyuBack));}
-  if(certSenmon){folder.file(`専門級_証明書.${getExt(certSenmon)}`,dataURLtoBlob(certSenmon));}
-  if(certLicense){folder.file(`運転免許.${getExt(certLicense)}`,dataURLtoBlob(certLicense));}
-  if(certJlpt){folder.file(`日本語_証明書_JLPT.${getExt(certJlpt)}`,dataURLtoBlob(certJlpt));}
-  if(certTokutei){folder.file(`特定技能_証明書.${getExt(certTokutei)}`,dataURLtoBlob(certTokutei));}
+  if(zairyuFront){folder.file(`在留カード_表.${getExt(zairyuFront,'zairyuFront')}`,dataURLtoBlob(zairyuFront));}
+  if(zairyuBack){folder.file(`在留カード_裏.${getExt(zairyuBack,'zairyuBack')}`,dataURLtoBlob(zairyuBack));}
+  if(certSenmon){folder.file(`専門級_証明書.${getExt(certSenmon,'certSenmon')}`,dataURLtoBlob(certSenmon));}
+  if(certLicense){folder.file(`運転免許.${getExt(certLicense,'certLicense')}`,dataURLtoBlob(certLicense));}
+  if(certJlpt){folder.file(`日本語_証明書_JLPT.${getExt(certJlpt,'certJlpt')}`,dataURLtoBlob(certJlpt));}
+  if(certTokutei){folder.file(`特定技能_証明書.${getExt(certTokutei,'certTokutei')}`,dataURLtoBlob(certTokutei));}
 
   return await zip.generateAsync({type:'blob'});
 }
@@ -1069,7 +1099,7 @@ function showSuccess(){
 
 function restart(){
   data={};photoData=null;zairyuFront=null;zairyuBack=null;
-  certSenmon=null;certLicense=null;certJlpt=null;certTokutei=null;
+  certSenmon=null;certLicense=null;certJlpt=null;certTokutei=null;fileNames={};
   eduRows=[{start:'',end:'',detail:''}];
   workRows=[{start:'',end:'',detail:''}];
   licRows=[{date:'',detail:''}];
