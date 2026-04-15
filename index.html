@@ -453,13 +453,39 @@ async function ensureTesseract(){
     };document.head.appendChild(s);
   });
 }
+function preprocessImage(imgDataUrl){
+  return new Promise((resolve)=>{
+    const img=new Image();
+    img.onload=()=>{
+      const c=document.createElement('canvas');
+      c.width=img.width;c.height=img.height;
+      const ctx=c.getContext('2d');
+      ctx.drawImage(img,0,0);
+      // Grayscale + high contrast for better OCR
+      const d=ctx.getImageData(0,0,c.width,c.height);
+      const px=d.data;
+      for(let i=0;i<px.length;i+=4){
+        const gray=0.299*px[i]+0.587*px[i+1]+0.114*px[i+2];
+        // Increase contrast: stretch histogram
+        const v=Math.min(255,Math.max(0,(gray-80)*1.8));
+        px[i]=px[i+1]=px[i+2]=v;
+      }
+      ctx.putImageData(d,0,0);
+      resolve(c.toDataURL('image/png'));
+    };
+    img.onerror=()=>resolve(imgDataUrl); // fallback to original
+    img.src=imgDataUrl;
+  });
+}
 async function ocrImage(imgDataUrl){
   await ensureTesseract();
+  // Preprocess: grayscale + contrast enhancement
+  const processed=await preprocessImage(imgDataUrl);
   const worker=await Tesseract.createWorker('eng+jpn',1,{
     workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
     corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core-simd-lstm.wasm.js',
   });
-  const{data:{text}}=await worker.recognize(imgDataUrl);
+  const{data:{text}}=await worker.recognize(processed);
   await worker.terminate();
   return text;
 }
@@ -493,66 +519,122 @@ async function runOCR(imgDataUrl,side){
 
 function parseZairyuFront(text){
   const lines=text.split('\n').map(l=>l.trim()).filter(l=>l);
+  // Words that appear on the card but are NOT the person's name
+  const CARD_WORDS=/\b(GOVERNMENT|JAPAN|RESIDENCE|CARD|IMMIGRATION|STATUS|DATE|BIRTH|MALE|FEMALE|NATIONALITY|NAME|BUREAU|MINISTRY|JUSTICE|ADDRESS|PERIOD|STAY|EXPIRATION|NUMBER|TYPE|PERMIT|FOREIGN|NATIONAL|CERTIFICATE|PHOTO|SEX|VALID|AUTHORITY|OF)\b/gi;
+  function isCardText(s){
+    // Remove known card words; if nothing meaningful remains (less than 3 chars), it's card text
+    const cleaned=s.replace(CARD_WORDS,'').replace(/[\s\-\.]+/g,' ').trim();
+    return cleaned.length<3;
+  }
   // NAME: multiple strategies to find English uppercase name from 在留カード
   if(!data.fullname){
     let foundName='';
-    // Strategy 1: line after 氏名 label
+    // Strategy 1: find text on same line as 氏名 or NAME label
     for(let i=0;i<lines.length;i++){
-      if(/氏\s*名|Name/i.test(lines[i])){
-        // Name might be on the same line after label, or on next line
-        const sameLine=lines[i].replace(/.*(?:氏\s*名|Name)\s*[:：]?\s*/i,'').trim();
+      if(/氏\s*名|^NAME\b/i.test(lines[i])){
+        // Extract everything after the label
+        const sameLine=lines[i].replace(/.*?(?:氏\s*名|NAME)\s*[:：]?\s*/i,'').trim();
         const upperPart=sameLine.match(/([A-Z][A-Z\s\-\.]{2,})/);
-        if(upperPart&&upperPart[1].length>3){foundName=upperPart[1].trim();break;}
-        // Check next line
-        if(i+1<lines.length){
-          const nextUp=lines[i+1].match(/([A-Z][A-Z\s\-\.]{2,})/);
-          if(nextUp&&nextUp[1].length>3){foundName=nextUp[1].trim();break;}
+        if(upperPart&&upperPart[1].trim().length>3&&!isCardText(upperPart[1])){foundName=upperPart[1].trim();break;}
+        // Check next line(s) for the name
+        for(let j=1;j<=2&&i+j<lines.length;j++){
+          const nextLine=lines[i+j];
+          const nextUp=nextLine.match(/([A-Z][A-Z\s\-\.]{2,})/);
+          if(nextUp&&nextUp[1].trim().length>3&&!isCardText(nextUp[1])){foundName=nextUp[1].trim();break;}
         }
+        if(foundName)break;
       }
     }
-    // Strategy 2: any line that is mostly uppercase English (original approach)
+    // Strategy 2: any line that is mostly uppercase English and NOT card text
     if(!foundName){
-      const nameLines=lines.filter(l=>/^[A-Z][A-Z\s\-\.]{3,}$/.test(l)&&l.length>3);
+      const nameLines=lines.filter(l=>/^[A-Z][A-Z\s\-\.]{3,}$/.test(l)&&l.length>3&&!isCardText(l));
       if(nameLines.length)foundName=nameLines.sort((a,b)=>b.length-a.length)[0];
     }
-    // Strategy 3: extract uppercase English substring from any line
+    // Strategy 3: extract uppercase substring that contains at least 2 words and is NOT card text
     if(!foundName){
       for(const l of lines){
-        const m=l.match(/([A-Z][A-Z]{1,}\s+[A-Z][A-Z\s\-\.]{1,})/);
-        if(m&&m[1].length>5&&!/^(RESIDENCE|CARD|IMMIGRATION|STATUS|JAPAN|DATE|BIRTH|MALE|FEMALE|NATIONALITY)/.test(m[1])){foundName=m[1].trim();break;}
+        const matches=[...l.matchAll(/([A-Z][A-Z]+(?:\s+[A-Z][A-Z]+)+)/g)];
+        for(const m of matches){
+          if(m[1].length>5&&!isCardText(m[1])){foundName=m[1].trim();break;}
+        }
+        if(foundName)break;
       }
     }
     if(foundName){data.fullname=foundName.replace(/\s+/g,' ').trim();}
+    console.log('OCR name extraction:',foundName||'(not found)');
   }
-  // DATE OF BIRTH
-  const dobMatch=text.match(/(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})\s*日?\s*生?/);
-  if(dobMatch&&!data.dob){const yr=parseInt(dobMatch[1]);if(yr>1950&&yr<2015)data.dob=`${dobMatch[1]}-${dobMatch[2].padStart(2,'0')}-${dobMatch[3].padStart(2,'0')}`;}
-  // GENDER
-  if(!data.gender){if(/[^a-zA-Z]男[性]?|Male|MALE/.test(text))data.gender=t('male');else if(/[^a-zA-Z]女[性]?|Female|FEMALE/.test(text))data.gender=t('female');}
-  // NATIONALITY
-  const natMatch=text.match(/国\s*籍[・\s:：]*([^\n\r]{2,20})/);
-  if(natMatch&&!data.nationality){let nat=natMatch[1].trim().replace(/[,。、]/g,'');data.nationality=JP_DICT[nat.toLowerCase()]||nat;}
-  // VISA TYPE - multiple OCR patterns
+  // DATE OF BIRTH — multiple date formats
+  if(!data.dob){
+    const dobPats=[
+      /(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})\s*日?\s*生/,
+      /(?:生年月日|DATE\s*OF\s*BIRTH)[^\d]*(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})/i,
+      /(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})\s*日/,
+    ];
+    for(const dp of dobPats){
+      const dm=text.match(dp);
+      if(dm){const yr=parseInt(dm[1]);if(yr>1950&&yr<2015){data.dob=`${dm[1]}-${dm[2].padStart(2,'0')}-${dm[3].padStart(2,'0')}`;break;}}
+    }
+  }
+  // GENDER — check both Japanese and English
+  if(!data.gender){
+    if(/男\s*性|[^a-zA-Z]男[^a-zA-Z]|Male|MALE|性\s*別.*?男/.test(text))data.gender=t('male');
+    else if(/女\s*性|[^a-zA-Z]女[^a-zA-Z]|Female|FEMALE|性\s*別.*?女/.test(text))data.gender=t('female');
+  }
+  // NATIONALITY — multiple patterns, flexible spacing
+  if(!data.nationality){
+    const natPats=[/国\s*籍[・\s:：]*([^\n\r]{2,20})/,/(?:NATIONALITY)[・\s:：]*([^\n\r]{2,20})/i];
+    for(const np of natPats){
+      const nm=text.match(np);
+      if(nm){
+        let nat=nm[1].trim().replace(/[,。、\/]/g,'').replace(/\s*地域\s*/,'');
+        // Map common OCR results to proper names
+        const natMap={'ベトナム':'ベトナム','べトナム':'ベトナム','インドネシア':'インドネシア','ネパール':'ネパール','ミャンマー':'ミャンマー','中国':'中国','カンボジア':'カンボジア','モンゴル':'モンゴル','タイ':'タイ','バングラデシュ':'バングラデシュ','フィリピン':'フィリピン'};
+        data.nationality=natMap[nat]||JP_DICT[nat.toLowerCase()]||nat;
+        break;
+      }
+    }
+    // Fallback: scan for known nationality names in text
+    if(!data.nationality){
+      const knownNat=['ベトナム','インドネシア','ネパール','ミャンマー','中国','カンボジア','モンゴル','タイ','バングラデシュ','フィリピン','韓国','ブラジル','ペルー'];
+      for(const kn of knownNat){if(text.includes(kn)){data.nationality=kn;break;}}
+    }
+  }
+  // VISA TYPE — multiple OCR patterns + fallback to known types
   if(!data.visa){
-    const visaPats=[/在留資格[・\s:：]*([^\n\r]{2,30})/,/在\s*留\s*資\s*格[・\s:：]*([^\n\r]{2,30})/,/(?:STATUS|status)[・\s:：]*([^\n\r]{2,30})/];
+    const visaPats=[/在留資格[・\s:：]*([^\n\r]{2,30})/,/在\s*留\s*資\s*格[・\s:：]*([^\n\r]{2,30})/,/(?:STATUS\s*OF\s*RESIDENCE|STATUS)[・\s:：]*([^\n\r]{2,30})/i];
     for(const vp of visaPats){const vm=text.match(vp);if(vm){data.visa=vm[1].trim().replace(/[。,、]/g,'');break;}}
     // Fallback: look for known visa types directly in text
     if(!data.visa){
-      const knownVisa=['技能実習1号','技能実習2号','技能実習3号','特定技能1号','特定技能2号','技術・人文知識・国際業務','留学','家族滞在','永住者','定住者','特定活動'];
-      for(const kv of knownVisa){if(text.includes(kv)){data.visa=kv;break;}}
+      const knownVisa=['技能実習1号','技能実習2号','技能実習3号','技能実習１号','技能実習２号','技能実習３号','特定技能1号','特定技能2号','特定技能１号','特定技能２号','技術・人文知識・国際業務','留学','家族滞在','永住者','定住者','特定活動'];
+      for(const kv of knownVisa){if(text.includes(kv)){data.visa=kv.replace(/１/g,'1').replace(/２/g,'2').replace(/３/g,'3');break;}}
+    }
+    // Fallback: partial match (OCR might read 技能実習 without the number)
+    if(!data.visa){
+      if(/技能\s*実習/.test(text)){
+        const numM=text.match(/技能\s*実習\s*[1-3１-３]?\s*号?/);
+        data.visa=numM?numM[0].replace(/\s+/g,'').replace(/１/g,'1').replace(/２/g,'2').replace(/３/g,'3'):'技能実習';
+      }else if(/特定\s*技能/.test(text)){
+        const numM=text.match(/特定\s*技能\s*[1-2１-２]?\s*号?/);
+        data.visa=numM?numM[0].replace(/\s+/g,'').replace(/１/g,'1').replace(/２/g,'2'):'特定技能';
+      }
     }
   }
-  // VISA EXPIRY - multiple patterns
+  // VISA EXPIRY — multiple patterns + smart date detection
   if(!data.visa_exp){
-    const expPats=[/(?:満了|期限|期間|在留期間)[^\d]*(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})/,/(?:EXPIRY|expiry|DATE OF EXPIRATION)[^\d]*(\d{4})\s*[\/\.\-]\s*(\d{1,2})\s*[\/\.\-]\s*(\d{1,2})/];
+    const expPats=[
+      /(?:満了日?|期限|在留期間|PERIOD\s*OF\s*STAY|EXPIR)[^\d]*(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})/i,
+      /(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})\s*(?:日?\s*まで)/,
+    ];
     for(const ep of expPats){const em=text.match(ep);if(em){const yr=parseInt(em[1]);if(yr>2020&&yr<2040){data.visa_exp=`${em[1]}-${em[2].padStart(2,'0')}-${em[3].padStart(2,'0')}`;break;}}}
-    // Also try: find a date after visa type that looks like expiry (future date)
+    // Smart: find all dates, DOB is in the past, expiry is in the future
     if(!data.visa_exp){
       const allDates=[...text.matchAll(/(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})/g)];
       const now=new Date();
       for(const dm of allDates){
-        const d=new Date(parseInt(dm[1]),parseInt(dm[2])-1,parseInt(dm[3]));
-        if(d>now&&d.getFullYear()<2040){data.visa_exp=`${dm[1]}-${dm[2].padStart(2,'0')}-${dm[3].padStart(2,'0')}`;break;}
+        const yr=parseInt(dm[1]),mo=parseInt(dm[2]),da=parseInt(dm[3]);
+        const d=new Date(yr,mo-1,da);
+        // Future date = likely expiry (not DOB)
+        if(d>now&&yr>2020&&yr<2040){data.visa_exp=`${dm[1]}-${String(mo).padStart(2,'0')}-${String(da).padStart(2,'0')}`;break;}
       }
     }
   }
@@ -594,42 +676,49 @@ function parseZairyuBack(text){
 }
 
 // ===== POSTAL CODE LOOKUP =====
+// Common postal codes for major cities (offline fallback)
+const POSTAL_DB={'東京都千代田区':'100','東京都中央区':'103','東京都港区':'105','東京都新宿区':'160','東京都文京区':'112','東京都台東区':'110','東京都墨田区':'130','東京都江東区':'135','東京都品川区':'140','東京都目黒区':'152','東京都大田区':'143','東京都世田谷区':'154','東京都渋谷区':'150','東京都中野区':'164','東京都杉並区':'166','東京都豊島区':'170','東京都北区':'114','東京都荒川区':'116','東京都板橋区':'173','東京都練馬区':'176','東京都足立区':'120','東京都葛飾区':'124','東京都江戸川区':'132','大阪府大阪市':'530','愛知県名古屋市':'450','埼玉県川口市':'332','埼玉県さいたま市':'330','神奈川県横浜市':'220','千葉県千葉市':'260','北海道札幌市':'060','福岡県福岡市':'810','広島県広島市':'730','京都府京都市':'600','兵庫県神戸市':'650','静岡県浜松市':'430','群馬県前橋市':'371','茨城県水戸市':'310','栃木県宇都宮市':'320','長野県長野市':'380'};
 async function lookupPostalCode(address){
   try{
-    // Extract prefecture+city+town for search
+    // Extract prefecture+city+town
     const m=address.match(/(東京都|北海道|(?:京都|大阪)府|.{2,3}県)\s*(.{1,10}?[市区町村郡])\s*(.{0,20}?[町丁目区])?/);
     if(!m){console.log('Postal: no prefecture match in:',address);return;}
-    // Strategy 1: GeoAPI Heartrails searchByAddress
-    const query=m[1]+(m[2]||'')+(m[3]||'');
-    console.log('Postal lookup query:',query);
+    const pref=m[1],city=m[2]||'',town=m[3]||'';
+    console.log('Postal lookup:',pref,city,town);
+    // Strategy 1: postcodes.jp API (CORS-friendly, free)
     try{
-      const resp=await fetch(`https://geoapi.heartrails.com/api/json?method=searchByAddress&address=${encodeURIComponent(query)}`,{signal:AbortSignal.timeout(5000)});
-      const json=await resp.json();
-      if(json.response&&json.response.location&&json.response.location.length){
-        const loc=json.response.location[0];
-        if(loc.postal){data.postcode=loc.postal;console.log('Postal found (searchByAddress):',data.postcode);return;}
-      }
-    }catch(e1){console.log('searchByAddress failed:',e1);}
-    // Strategy 2: jp-postal-code-api (zipcloud)
+      const q=encodeURIComponent(pref+city+town);
+      const resp=await fetch(`https://apis.postcode-jp.com/api/postcodes?general.japanese=${q}`,{signal:AbortSignal.timeout(5000)});
+      if(resp.ok){const json=await resp.json();if(json.length&&json[0].postcode){data.postcode=json[0].postcode.slice(0,3)+'-'+json[0].postcode.slice(3);console.log('Postal found (postcode-jp):',data.postcode);return;}}
+    }catch(e1){console.log('postcode-jp failed:',e1);}
+    // Strategy 2: GeoAPI Heartrails suggest
     try{
-      const q2=m[1]+(m[2]||'');
-      const resp2=await fetch(`https://zipcloud.ibsnet.co.jp/api/search?address=${encodeURIComponent(q2)}`,{signal:AbortSignal.timeout(5000)});
+      const q2=pref+city;
+      const resp2=await fetch(`https://geoapi.heartrails.com/api/json?method=suggest&keyword=${encodeURIComponent(q2)}`,{signal:AbortSignal.timeout(5000)});
       const json2=await resp2.json();
-      if(json2.results&&json2.results.length){
-        data.postcode=json2.results[0].zipcode;
+      if(json2.response&&json2.response.location&&json2.response.location.length){
+        const loc=json2.response.location[0];
+        if(loc.postal){data.postcode=loc.postal;console.log('Postal found (heartrails):',data.postcode);return;}
+      }
+    }catch(e2){console.log('heartrails failed:',e2);}
+    // Strategy 3: zipcloud
+    try{
+      const q3=pref+city;
+      const resp3=await fetch(`https://zipcloud.ibsnet.co.jp/api/search?address=${encodeURIComponent(q3)}`,{signal:AbortSignal.timeout(5000)});
+      const json3=await resp3.json();
+      if(json3.results&&json3.results.length){
+        const zc=json3.results[0].zipcode;
+        data.postcode=zc.slice(0,3)+'-'+zc.slice(3);
         console.log('Postal found (zipcloud):',data.postcode);return;
       }
-    }catch(e2){console.log('zipcloud failed:',e2);}
-    // Strategy 3: GeoAPI suggest (fallback)
-    try{
-      const q3=m[1]+(m[2]||'');
-      const resp3=await fetch(`https://geoapi.heartrails.com/api/json?method=suggest&keyword=${encodeURIComponent(q3)}`,{signal:AbortSignal.timeout(4000)});
-      const json3=await resp3.json();
-      if(json3.response&&json3.response.location&&json3.response.location.length){
-        const loc=json3.response.location[0];
-        if(loc.postal){data.postcode=loc.postal;console.log('Postal found (suggest):',data.postcode);return;}
-      }
-    }catch(e3){console.log('suggest failed:',e3);}
+    }catch(e3){console.log('zipcloud failed:',e3);}
+    // Strategy 4: Offline database fallback
+    const key=pref+city;
+    if(POSTAL_DB[key]){data.postcode=POSTAL_DB[key]+'-0000';console.log('Postal found (offline):',data.postcode);}
+    else{
+      // Try just prefecture + partial city
+      for(const[k,v]of Object.entries(POSTAL_DB)){if(key.startsWith(k.slice(0,5))||k.startsWith(key.slice(0,5))){data.postcode=v+'-0000';console.log('Postal found (offline partial):',data.postcode);break;}}
+    }
   }catch(e){console.log('Postal code lookup failed:',e);}
 }
 
@@ -639,10 +728,12 @@ function onCert(key,inp){
   let loaded=0;
   files.forEach(file=>{const r=new FileReader();r.onload=e=>{
     certFiles[key].push({name:file.name,data:e.target.result});loaded++;
+    // OCR each image file immediately
+    if(file.type.startsWith('image/')){
+      ocrCertificate(e.target.result,key);
+    }
     if(loaded===files.length){
       showStep();
-      // OCR certificate images to auto-fill 免許・資格
-      if(file.type.startsWith('image/'))ocrCertificate(e.target.result,key);
     }
   };r.readAsDataURL(file);});
 }
