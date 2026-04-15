@@ -264,6 +264,8 @@ vi:{
   emailStep1:"1️⃣ File ZIP đã tải xuống máy",
   emailStep2:"2️⃣ Ứng dụng email sẽ mở ra → đính kèm file ZIP vừa tải",
   emailStep3:"3️⃣ Nhấn Gửi để hoàn tất",
+  ocrReading:"Đang đọc thẻ ngoại kiều...",ocrDone:"Đã đọc xong! Thông tin đã được điền tự động.",ocrFail:"Không đọc được ảnh, vui lòng nhập tay.",ocrReadingCert:"Đang đọc chứng chỉ...",
+  autoFilled:"(đã tự động điền từ thẻ ngoại kiều)",
 },
 id:{
   welcome:"Selamat Datang!",welcomeDesc:"Silakan jawab pertanyaan berikut untuk membuat 履歴書.",
@@ -360,6 +362,8 @@ function showStep(){
   let h=`<div class="q-number">${t('qLabel')} ${step+1} / ${TOTAL}</div><div class="q-title">${fl}</div><div class="q-title-jp">${f.jp}</div><div style="height:6px"></div>`;
   // Show hint for fullname field
   if(f.key==='fullname'&&t('fullnameHint'))h+=`<div class="hint-box">${t('fullnameHint').replace(/\n/g,'<br>')}</div>`;
+  // Show auto-filled indicator
+  if(sv&&ocrDone&&['fullname','dob','gender','nationality','address','visa','visa_exp'].includes(f.key))h+=`<div style="color:#2e7d32;font-size:11px;margin-bottom:4px">✅ ${t('autoFilled')||'(auto-filled from residence card)'}</div>`;
   if(f.type==='text'||f.type==='tel'||f.type==='email')h+=`<input type="${f.type}" class="q-input" id="qInput" value="${sv}">`;
   else if(f.type==='date')h+=`<input type="date" class="q-input" id="qInput" value="${sv}">`;
   else if(f.type==='select'){const o=getOpts(f.opts);h+=`<select class="q-input" id="qInput"><option value="">--</option>${o.map(x=>`<option value="${x}"${sv===x?' selected':''}>${x}</option>`).join('')}</select>`;}
@@ -426,7 +430,178 @@ function buildZairyu(){
 function onZairyu(side,inp){
   const files=Array.from(inp.files);if(!files.length)return;
   let loaded=0;const target=side==='front'?zairyuFront:zairyuBack;
-  files.forEach(file=>{const r=new FileReader();r.onload=e=>{target.push({name:file.name,data:e.target.result});loaded++;if(loaded===files.length)showStep();};r.readAsDataURL(file);});
+  files.forEach(file=>{const r=new FileReader();r.onload=e=>{
+    target.push({name:file.name,data:e.target.result});loaded++;
+    if(loaded===files.length){
+      showStep();
+      // Auto-OCR both sides of 在留カード
+      if(file.type.startsWith('image/'))runOCR(e.target.result,side);
+    }
+  };r.readAsDataURL(file);});
+}
+
+// ===== OCR ENGINE =====
+let ocrWorker=null,ocrFrontDone=false,ocrBackDone=false;
+async function ensureTesseract(){
+  if(typeof Tesseract!=='undefined')return;
+  await new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload=resolve;s.onerror=()=>{
+      const s2=document.createElement('script');s2.src='https://unpkg.com/tesseract.js@5/dist/tesseract.min.js';
+      s2.onload=resolve;s2.onerror=reject;document.head.appendChild(s2);
+    };document.head.appendChild(s);
+  });
+}
+async function ocrImage(imgDataUrl){
+  await ensureTesseract();
+  const worker=await Tesseract.createWorker('eng+jpn',1,{
+    workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
+    corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core-simd-lstm.wasm.js',
+  });
+  const{data:{text}}=await worker.recognize(imgDataUrl);
+  await worker.terminate();
+  return text;
+}
+function showOcrStatus(msg,color){
+  let el=document.getElementById('ocrStatus');
+  if(!el){el=document.createElement('div');el.id='ocrStatus';el.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1a237e;color:#fff;padding:10px 24px;border-radius:20px;font-size:13px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.3)';document.body.appendChild(el);}
+  el.textContent=msg;if(color)el.style.background=color;
+  return el;
+}
+
+// ===== OCR: 在留カード =====
+async function runOCR(imgDataUrl,side){
+  if(side==='front'&&ocrFrontDone)return;
+  if(side==='back'&&ocrBackDone)return;
+  const el=showOcrStatus('🔍 '+(t('ocrReading')||'Đang đọc thẻ ngoại kiều...'));
+  try{
+    const text=await ocrImage(imgDataUrl);
+    console.log(`OCR ${side} raw:`,text);
+    if(side==='front'){parseZairyuFront(text);ocrFrontDone=true;}
+    else{parseZairyuBack(text);ocrBackDone=true;}
+    // Auto-lookup postal code from address
+    if(data.address&&!data.postcode)await lookupPostalCode(data.address);
+    el.textContent='✅ '+(t('ocrDone')||'Đã đọc xong!');el.style.background='#2e7d32';
+    setTimeout(()=>{el.remove();showStep();},2000);
+  }catch(e){
+    console.error('OCR error:',e);
+    el.textContent='⚠️ '+(t('ocrFail')||'Không đọc được, vui lòng nhập tay');el.style.background='#e65100';
+    setTimeout(()=>el.remove(),3000);
+  }
+}
+
+function parseZairyuFront(text){
+  const lines=text.split('\n').map(l=>l.trim()).filter(l=>l);
+  // NAME (English uppercase)
+  const nameLines=lines.filter(l=>/^[A-Z][A-Z\s\-\.]{3,}$/.test(l)&&l.length>3);
+  if(nameLines.length&&!data.fullname)data.fullname=nameLines.sort((a,b)=>b.length-a.length)[0].replace(/\s+/g,' ').trim();
+  // DATE OF BIRTH
+  const dobMatch=text.match(/(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})\s*日?\s*生?/);
+  if(dobMatch&&!data.dob){const yr=parseInt(dobMatch[1]);if(yr>1950&&yr<2015)data.dob=`${dobMatch[1]}-${dobMatch[2].padStart(2,'0')}-${dobMatch[3].padStart(2,'0')}`;}
+  // GENDER
+  if(!data.gender){if(/[^a-zA-Z]男[性]?|Male|MALE/.test(text))data.gender=t('male');else if(/[^a-zA-Z]女[性]?|Female|FEMALE/.test(text))data.gender=t('female');}
+  // NATIONALITY
+  const natMatch=text.match(/国\s*籍[・\s:：]*([^\n\r]{2,20})/);
+  if(natMatch&&!data.nationality){let nat=natMatch[1].trim().replace(/[,。、]/g,'');data.nationality=JP_DICT[nat.toLowerCase()]||nat;}
+  // VISA TYPE
+  const visaMatch=text.match(/在留資格[・\s:：]*([^\n\r]{2,30})/);
+  if(visaMatch&&!data.visa)data.visa=visaMatch[1].trim().replace(/[。]/g,'');
+  // VISA EXPIRY
+  const expMatch=text.match(/(?:満了|期限|期間)[^\d]*(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})/);
+  if(expMatch&&!data.visa_exp)data.visa_exp=`${expMatch[1]}-${expMatch[2].padStart(2,'0')}-${expMatch[3].padStart(2,'0')}`;
+  // ADDRESS (front)
+  const addrMatch=text.match(/住居地[・\s:：]*([^\n\r]{5,80})/);
+  if(addrMatch)data.address=addrMatch[1].trim();
+  console.log('OCR front extracted:',{fullname:data.fullname,dob:data.dob,gender:data.gender,nationality:data.nationality,visa:data.visa,visa_exp:data.visa_exp,address:data.address});
+}
+
+function parseZairyuBack(text){
+  // Back side: look for LATEST address in 住居地 section
+  // The back has address change records - newest is at the bottom
+  const addrMatches=text.match(/(?:住居地|新住居地|変更後)[・\s:：]*([^\n\r]{5,80})/g);
+  if(addrMatches&&addrMatches.length){
+    // Take the LAST (newest) address
+    const last=addrMatches[addrMatches.length-1];
+    const addr=last.replace(/^.*?[：:]\s*/,'').trim();
+    if(addr.length>5)data.address=addr; // Override front address with newer back address
+    console.log('OCR back: newer address found →',data.address);
+  }
+}
+
+// ===== POSTAL CODE LOOKUP =====
+async function lookupPostalCode(address){
+  try{
+    // Extract prefecture+city for search
+    const m=address.match(/(東京都|北海道|(?:京都|大阪)府|.{2,3}県)(.{1,6}[市区町村])/);
+    if(!m)return;
+    const query=m[1]+m[2];
+    const resp=await fetch(`https://geoapi.heartrails.com/api/json?method=suggest&keyword=${encodeURIComponent(query)}`,{signal:AbortSignal.timeout(4000)});
+    const json=await resp.json();
+    if(json.response&&json.response.location&&json.response.location.length){
+      const loc=json.response.location[0];
+      if(loc.postal)data.postcode=loc.postal;
+      console.log('Postal code found:',data.postcode);
+    }
+  }catch(e){console.log('Postal code lookup failed:',e);}
+}
+
+// ===== OCR: CERTIFICATES =====
+function onCert(key,inp){
+  const files=Array.from(inp.files);if(!files.length)return;
+  let loaded=0;
+  files.forEach(file=>{const r=new FileReader();r.onload=e=>{
+    certFiles[key].push({name:file.name,data:e.target.result});loaded++;
+    if(loaded===files.length){
+      showStep();
+      // OCR certificate images to auto-fill 免許・資格
+      if(file.type.startsWith('image/'))ocrCertificate(e.target.result,key);
+    }
+  };r.readAsDataURL(file);});
+}
+async function ocrCertificate(imgDataUrl,certKey){
+  try{
+    const el=showOcrStatus('🔍 '+(t('ocrReadingCert')||'Đang đọc chứng chỉ...'));
+    const text=await ocrImage(imgDataUrl);
+    console.log(`OCR cert [${certKey}]:`,text);
+    // Try to extract certificate name and date
+    let certName='',certDate='';
+    // Common certificate patterns
+    if(/介護技能評価試験/.test(text))certName='介護技能評価試験';
+    else if(/介護日本語評価試験/.test(text))certName='介護日本語評価試験';
+    else if(/国際交流基金日本語基礎テスト|JFT[\s-]*Basic/i.test(text))certName='国際交流基金日本語基礎テスト';
+    else if(/日本語能力試験|JLPT/i.test(text)){
+      const lvl=text.match(/N([1-5])/);certName='日本語能力試験'+(lvl?' N'+lvl[1]:'');
+    }
+    else if(/特定技能/.test(text))certName='特定技能評価試験';
+    else if(/介護職員初任者研修/.test(text))certName='介護職員初任者研修';
+    else if(/運転免許|driver/i.test(text))certName='運転免許';
+    // Extract date
+    const dateMatch=text.match(/(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]?\s*(\d{0,2})/);
+    if(dateMatch){
+      const yr=parseInt(dateMatch[1]);
+      if(yr>2015&&yr<2030)certDate=`${dateMatch[1]}/${dateMatch[2].padStart(2,'0')}`;
+    }
+    // Check pass/fail
+    let result='';
+    if(/合格|passed|pass/i.test(text))result='合格';
+    else if(/判定.*?A|A.*?判定/.test(text))result='判定 A 合格';
+    // Auto-add to licRows if we found something
+    if(certName){
+      const fullDetail=certName+(result?'　　　　'+result:'');
+      // Check if already exists
+      const exists=licRows.some(r=>r.detail&&r.detail.includes(certName));
+      if(!exists){
+        // Add or fill empty row
+        const emptyRow=licRows.find(r=>!r.detail);
+        if(emptyRow){emptyRow.date=certDate;emptyRow.detail=fullDetail;}
+        else licRows.push({date:certDate,detail:fullDetail});
+      }
+      console.log('Cert auto-added:',certDate,fullDetail);
+    }
+    el.textContent='✅ '+(certName?certName+' '+result:'Đọc xong');el.style.background='#2e7d32';
+    setTimeout(()=>el.remove(),2500);
+  }catch(e){console.log('Cert OCR failed:',e);const el=document.getElementById('ocrStatus');if(el)el.remove();}
 }
 
 // ===== CERTS (multi-file per category) =====
@@ -446,11 +621,7 @@ function buildCerts(){
   });
   h+='</div>';return h;
 }
-function onCert(key,inp){
-  const files=Array.from(inp.files);if(!files.length)return;
-  let loaded=0;
-  files.forEach(file=>{const r=new FileReader();r.onload=e=>{certFiles[key].push({name:file.name,data:e.target.result});loaded++;if(loaded===files.length)showStep();};r.readAsDataURL(file);});
-}
+// onCert is defined above with OCR support
 
 // ===== DYNAMIC ROWS =====
 function buildEdu(){
@@ -896,27 +1067,62 @@ async function doDownloadZip(){
 }
 async function doEmailZip(){
   const sel=getSelectedEmails();if(!sel.length){alert('Please select email!');return;}
-  showLoading();
+  showLoading(t('sendingEmail')||'Đang gửi email...','📧');
   try{
     const z=await createZip();
     const nm=(data.fullname||'profile').replace(/\s+/g,'_');
     const fname=`履歴書_${nm}_${new Date().toISOString().slice(0,10)}.zip`;
+    // Also save locally as backup
     saveAs(z,fname);
+
+    // Auto-send via FormSubmit.co (free, no backend needed)
+    const primary=sel[0];
+    const cc=sel.slice(1).join(',');
+    const fd=new FormData();
+    fd.append('_subject',`履歴書 - ${data.fullname||''}`);
+    fd.append('_cc',cc);
+    fd.append('_captcha','false');
+    fd.append('_template','table');
+    fd.append('_autoresponse',t('emailAutoReply')||'ご応募ありがとうございます。履歴書を受け取りました。');
+    fd.append('氏名 (Name)',data.fullname||'-');
+    fd.append('フリガナ',data.furigana||'-');
+    fd.append('国籍 (Nationality)',data.nationality||'-');
+    fd.append('在留資格 (Visa)',data.visa||'-');
+    fd.append('電話 (Phone)',data.phone||'-');
+    fd.append('Email',data.email||'-');
+    fd.append('attachment',z,fname);
+
+    const resp=await fetch(`https://formsubmit.co/ajax/${primary}`,{
+      method:'POST',body:fd,
+      headers:{'Accept':'application/json'}
+    });
+    const result=await resp.json();
+
     hideLoading();
-    const s=encodeURIComponent(`履歴書 - ${data.fullname||''}`);
-    const b=encodeURIComponent(`履歴書を送付いたします。\n\n氏名: ${data.fullname||'-'}\n国籍: ${data.nationality||'-'}\n在留資格: ${data.visa||'-'}\n\n※ ZIPファイルを添付してください（履歴書Word + 在留カード + 証明書）\n\n---\nYourBright Co., Ltd.`);
-    // Small delay to ensure download completes before opening email
-    setTimeout(()=>{
-      window.open(`mailto:${sel.join(',')}?subject=${s}&body=${b}`,'_blank');
-      // Show step-by-step guide instead of simple alert
-      const guide=`${t('emailStep1')||'1. ZIP downloaded'}\n${t('emailStep2')||'2. Attach ZIP to email'}\n${t('emailStep3')||'3. Send email'}\n\n📎 ${fname}`;
-      alert(guide);
+    if(resp.ok&&result.success){
+      alert(t('emailSent')||`✅ Email đã gửi thành công đến:\n${sel.join('\n')}\n\n📎 File ${fname} cũng đã tải về máy.`);
       showSuccess();
-    },800);
-  }catch(e){hideLoading();alert('Error: '+e.message);console.error(e);}
+    }else{
+      // FormSubmit may need email verification first time
+      console.log('FormSubmit response:',result);
+      alert(t('emailVerify')||`⚠️ Lần đầu sử dụng: FormSubmit đã gửi email xác nhận đến ${primary}.\nVui lòng kiểm tra hộp thư và nhấn xác nhận, sau đó thử gửi lại.\n\n📎 File ZIP đã tải về máy.`);
+      showSuccess();
+    }
+  }catch(e){
+    hideLoading();
+    console.error('Email error:',e);
+    // Fallback: open Gmail compose
+    const nm=(data.fullname||'profile').replace(/\s+/g,'_');
+    const subj=encodeURIComponent(`履歴書 - ${data.fullname||''}`);
+    const body=encodeURIComponent(`履歴書を送付いたします。\n\n氏名: ${data.fullname||'-'}\n国籍: ${data.nationality||'-'}\n\n※ ZIPファイルを添付してください\n\n---\nYourBright Co., Ltd.`);
+    const to=sel.join(',');
+    window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(to)}&su=${subj}&body=${body}`,'_blank');
+    alert(`⚠️ Không gửi tự động được. Gmail đã mở → đính kèm file ZIP vừa tải.\n\n📎 履歴書_${nm}.zip`);
+    showSuccess();
+  }
 }
 function showSuccess(){document.getElementById('reviewArea').classList.add('hidden');document.getElementById('successArea').classList.remove('hidden');}
-function restart(){data={};photoData=null;zairyuFront=[];zairyuBack=[];certFiles={certSenmon:[],certLicense:[],certJlpt:[],certTokutei:[],certOther:[]};eduRows=[{start:'',end:'',detail:''}];workRows=[{start:'',end:'',country:'home',visa:'',detail:''}];licRows=[{date:'',detail:''}];step=0;document.getElementById('successArea').classList.add('hidden');document.getElementById('welcomeScreen').classList.remove('hidden');document.getElementById('langSection').classList.remove('hidden');document.getElementById('progressSection').classList.add('hidden');document.getElementById('navButtons').classList.add('hidden');updateUI();}
+function restart(){data={};photoData=null;ocrDone=false;zairyuFront=[];zairyuBack=[];certFiles={certSenmon:[],certLicense:[],certJlpt:[],certTokutei:[],certOther:[]};eduRows=[{start:'',end:'',detail:''}];workRows=[{start:'',end:'',country:'home',visa:'',detail:''}];licRows=[{date:'',detail:''}];step=0;document.getElementById('successArea').classList.add('hidden');document.getElementById('welcomeScreen').classList.remove('hidden');document.getElementById('langSection').classList.remove('hidden');document.getElementById('progressSection').classList.add('hidden');document.getElementById('navButtons').classList.add('hidden');updateUI();}
 </script>
 </body>
 </html>
