@@ -363,7 +363,7 @@ function showStep(){
   // Show hint for fullname field
   if(f.key==='fullname'&&t('fullnameHint'))h+=`<div class="hint-box">${t('fullnameHint').replace(/\n/g,'<br>')}</div>`;
   // Show auto-filled indicator
-  if(sv&&ocrDone&&['fullname','dob','gender','nationality','address','visa','visa_exp'].includes(f.key))h+=`<div style="color:#2e7d32;font-size:11px;margin-bottom:4px">✅ ${t('autoFilled')||'(auto-filled from residence card)'}</div>`;
+  if(sv&&(ocrFrontDone||ocrBackDone)&&['fullname','dob','gender','nationality','address','visa','visa_exp','postcode'].includes(f.key))h+=`<div style="color:#2e7d32;font-size:11px;margin-bottom:4px">✅ ${t('autoFilled')||'(auto-filled from residence card)'}</div>`;
   if(f.type==='text'||f.type==='tel'||f.type==='email')h+=`<input type="${f.type}" class="q-input" id="qInput" value="${sv}">`;
   else if(f.type==='date')h+=`<input type="date" class="q-input" id="qInput" value="${sv}">`;
   else if(f.type==='select'){const o=getOpts(f.opts);h+=`<select class="q-input" id="qInput"><option value="">--</option>${o.map(x=>`<option value="${x}"${sv===x?' selected':''}>${x}</option>`).join('')}</select>`;}
@@ -480,8 +480,8 @@ async function runOCR(imgDataUrl,side){
     console.log(`OCR ${side} raw:`,text);
     if(side==='front'){parseZairyuFront(text);ocrFrontDone=true;}
     else{parseZairyuBack(text);ocrBackDone=true;}
-    // Auto-lookup postal code from address
-    if(data.address&&!data.postcode)await lookupPostalCode(data.address);
+    // Auto-lookup postal code from address (always re-lookup when back side provides new address)
+    if(data.address)await lookupPostalCode(data.address);
     el.textContent='✅ '+(t('ocrDone')||'Đã đọc xong!');el.style.background='#2e7d32';
     setTimeout(()=>{el.remove();showStep();},2000);
   }catch(e){
@@ -493,9 +493,37 @@ async function runOCR(imgDataUrl,side){
 
 function parseZairyuFront(text){
   const lines=text.split('\n').map(l=>l.trim()).filter(l=>l);
-  // NAME (English uppercase)
-  const nameLines=lines.filter(l=>/^[A-Z][A-Z\s\-\.]{3,}$/.test(l)&&l.length>3);
-  if(nameLines.length&&!data.fullname)data.fullname=nameLines.sort((a,b)=>b.length-a.length)[0].replace(/\s+/g,' ').trim();
+  // NAME: multiple strategies to find English uppercase name from 在留カード
+  if(!data.fullname){
+    let foundName='';
+    // Strategy 1: line after 氏名 label
+    for(let i=0;i<lines.length;i++){
+      if(/氏\s*名|Name/i.test(lines[i])){
+        // Name might be on the same line after label, or on next line
+        const sameLine=lines[i].replace(/.*(?:氏\s*名|Name)\s*[:：]?\s*/i,'').trim();
+        const upperPart=sameLine.match(/([A-Z][A-Z\s\-\.]{2,})/);
+        if(upperPart&&upperPart[1].length>3){foundName=upperPart[1].trim();break;}
+        // Check next line
+        if(i+1<lines.length){
+          const nextUp=lines[i+1].match(/([A-Z][A-Z\s\-\.]{2,})/);
+          if(nextUp&&nextUp[1].length>3){foundName=nextUp[1].trim();break;}
+        }
+      }
+    }
+    // Strategy 2: any line that is mostly uppercase English (original approach)
+    if(!foundName){
+      const nameLines=lines.filter(l=>/^[A-Z][A-Z\s\-\.]{3,}$/.test(l)&&l.length>3);
+      if(nameLines.length)foundName=nameLines.sort((a,b)=>b.length-a.length)[0];
+    }
+    // Strategy 3: extract uppercase English substring from any line
+    if(!foundName){
+      for(const l of lines){
+        const m=l.match(/([A-Z][A-Z]{1,}\s+[A-Z][A-Z\s\-\.]{1,})/);
+        if(m&&m[1].length>5&&!/^(RESIDENCE|CARD|IMMIGRATION|STATUS|JAPAN|DATE|BIRTH|MALE|FEMALE|NATIONALITY)/.test(m[1])){foundName=m[1].trim();break;}
+      }
+    }
+    if(foundName){data.fullname=foundName.replace(/\s+/g,' ').trim();}
+  }
   // DATE OF BIRTH
   const dobMatch=text.match(/(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})\s*日?\s*生?/);
   if(dobMatch&&!data.dob){const yr=parseInt(dobMatch[1]);if(yr>1950&&yr<2015)data.dob=`${dobMatch[1]}-${dobMatch[2].padStart(2,'0')}-${dobMatch[3].padStart(2,'0')}`;}
@@ -504,45 +532,104 @@ function parseZairyuFront(text){
   // NATIONALITY
   const natMatch=text.match(/国\s*籍[・\s:：]*([^\n\r]{2,20})/);
   if(natMatch&&!data.nationality){let nat=natMatch[1].trim().replace(/[,。、]/g,'');data.nationality=JP_DICT[nat.toLowerCase()]||nat;}
-  // VISA TYPE
-  const visaMatch=text.match(/在留資格[・\s:：]*([^\n\r]{2,30})/);
-  if(visaMatch&&!data.visa)data.visa=visaMatch[1].trim().replace(/[。]/g,'');
-  // VISA EXPIRY
-  const expMatch=text.match(/(?:満了|期限|期間)[^\d]*(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})/);
-  if(expMatch&&!data.visa_exp)data.visa_exp=`${expMatch[1]}-${expMatch[2].padStart(2,'0')}-${expMatch[3].padStart(2,'0')}`;
-  // ADDRESS (front)
-  const addrMatch=text.match(/住居地[・\s:：]*([^\n\r]{5,80})/);
-  if(addrMatch)data.address=addrMatch[1].trim();
+  // VISA TYPE - multiple OCR patterns
+  if(!data.visa){
+    const visaPats=[/在留資格[・\s:：]*([^\n\r]{2,30})/,/在\s*留\s*資\s*格[・\s:：]*([^\n\r]{2,30})/,/(?:STATUS|status)[・\s:：]*([^\n\r]{2,30})/];
+    for(const vp of visaPats){const vm=text.match(vp);if(vm){data.visa=vm[1].trim().replace(/[。,、]/g,'');break;}}
+    // Fallback: look for known visa types directly in text
+    if(!data.visa){
+      const knownVisa=['技能実習1号','技能実習2号','技能実習3号','特定技能1号','特定技能2号','技術・人文知識・国際業務','留学','家族滞在','永住者','定住者','特定活動'];
+      for(const kv of knownVisa){if(text.includes(kv)){data.visa=kv;break;}}
+    }
+  }
+  // VISA EXPIRY - multiple patterns
+  if(!data.visa_exp){
+    const expPats=[/(?:満了|期限|期間|在留期間)[^\d]*(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})/,/(?:EXPIRY|expiry|DATE OF EXPIRATION)[^\d]*(\d{4})\s*[\/\.\-]\s*(\d{1,2})\s*[\/\.\-]\s*(\d{1,2})/];
+    for(const ep of expPats){const em=text.match(ep);if(em){const yr=parseInt(em[1]);if(yr>2020&&yr<2040){data.visa_exp=`${em[1]}-${em[2].padStart(2,'0')}-${em[3].padStart(2,'0')}`;break;}}}
+    // Also try: find a date after visa type that looks like expiry (future date)
+    if(!data.visa_exp){
+      const allDates=[...text.matchAll(/(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})/g)];
+      const now=new Date();
+      for(const dm of allDates){
+        const d=new Date(parseInt(dm[1]),parseInt(dm[2])-1,parseInt(dm[3]));
+        if(d>now&&d.getFullYear()<2040){data.visa_exp=`${dm[1]}-${dm[2].padStart(2,'0')}-${dm[3].padStart(2,'0')}`;break;}
+      }
+    }
+  }
+  // ADDRESS (front) - multiple patterns for OCR variants
+  let addrFound=null;
+  const addrPats=[/住居地[・\s:：]*([^\n\r]{5,80})/,/住\s*居\s*地[・\s:：]*([^\n\r]{5,80})/,/(?:居所|住所)[・\s:：]*([^\n\r]{5,80})/];
+  for(const pat of addrPats){const am=text.match(pat);if(am){addrFound=am[1].trim();break;}}
+  // Also try: line containing prefecture name
+  if(!addrFound){
+    for(const l of lines){
+      if(/(東京都|北海道|(?:京都|大阪)府|.{2,3}県).{3,}[市区町村]/.test(l)){
+        addrFound=l.replace(/^.*?(東京都|北海道|(?:京都|大阪)府)/,'$1').trim();break;
+      }
+    }
+  }
+  if(addrFound&&!data.address)data.address=addrFound;
   console.log('OCR front extracted:',{fullname:data.fullname,dob:data.dob,gender:data.gender,nationality:data.nationality,visa:data.visa,visa_exp:data.visa_exp,address:data.address});
 }
 
 function parseZairyuBack(text){
-  // Back side: look for LATEST address in 住居地 section
-  // The back has address change records - newest is at the bottom
-  const addrMatches=text.match(/(?:住居地|新住居地|変更後)[・\s:：]*([^\n\r]{5,80})/g);
-  if(addrMatches&&addrMatches.length){
-    // Take the LAST (newest) address
-    const last=addrMatches[addrMatches.length-1];
-    const addr=last.replace(/^.*?[：:]\s*/,'').trim();
-    if(addr.length>5)data.address=addr; // Override front address with newer back address
-    console.log('OCR back: newer address found →',data.address);
+  const lines=text.split('\n').map(l=>l.trim()).filter(l=>l);
+  // Back side: look for LATEST address (住居地変更 section)
+  // Multiple patterns for OCR variants
+  const addrPats=[/(?:住居地|新住居地|変更後|住\s*居\s*地|居所|住所)[・\s:：]*([^\n\r]{5,80})/g];
+  let allAddrs=[];
+  for(const pat of addrPats){let am;while((am=pat.exec(text))!==null){if(am[1].trim().length>5)allAddrs.push(am[1].trim());}}
+  // Also find lines with prefecture names (fallback)
+  for(const l of lines){
+    if(/(東京都|北海道|(?:京都|大阪)府|.{2,3}県).{3,}[市区町村]/.test(l)){
+      const addr=l.replace(/^.*?(東京都|北海道|(?:京都|大阪)府)/,'$1').trim();
+      if(addr.length>5&&!allAddrs.includes(addr))allAddrs.push(addr);
+    }
+  }
+  if(allAddrs.length){
+    // Take the LAST (newest) address — override front address
+    data.address=allAddrs[allAddrs.length-1];
+    console.log('OCR back: newest address →',data.address);
   }
 }
 
 // ===== POSTAL CODE LOOKUP =====
 async function lookupPostalCode(address){
   try{
-    // Extract prefecture+city for search
-    const m=address.match(/(東京都|北海道|(?:京都|大阪)府|.{2,3}県)(.{1,6}[市区町村])/);
-    if(!m)return;
-    const query=m[1]+m[2];
-    const resp=await fetch(`https://geoapi.heartrails.com/api/json?method=suggest&keyword=${encodeURIComponent(query)}`,{signal:AbortSignal.timeout(4000)});
-    const json=await resp.json();
-    if(json.response&&json.response.location&&json.response.location.length){
-      const loc=json.response.location[0];
-      if(loc.postal)data.postcode=loc.postal;
-      console.log('Postal code found:',data.postcode);
-    }
+    // Extract prefecture+city+town for search
+    const m=address.match(/(東京都|北海道|(?:京都|大阪)府|.{2,3}県)\s*(.{1,10}?[市区町村郡])\s*(.{0,20}?[町丁目区])?/);
+    if(!m){console.log('Postal: no prefecture match in:',address);return;}
+    // Strategy 1: GeoAPI Heartrails searchByAddress
+    const query=m[1]+(m[2]||'')+(m[3]||'');
+    console.log('Postal lookup query:',query);
+    try{
+      const resp=await fetch(`https://geoapi.heartrails.com/api/json?method=searchByAddress&address=${encodeURIComponent(query)}`,{signal:AbortSignal.timeout(5000)});
+      const json=await resp.json();
+      if(json.response&&json.response.location&&json.response.location.length){
+        const loc=json.response.location[0];
+        if(loc.postal){data.postcode=loc.postal;console.log('Postal found (searchByAddress):',data.postcode);return;}
+      }
+    }catch(e1){console.log('searchByAddress failed:',e1);}
+    // Strategy 2: jp-postal-code-api (zipcloud)
+    try{
+      const q2=m[1]+(m[2]||'');
+      const resp2=await fetch(`https://zipcloud.ibsnet.co.jp/api/search?address=${encodeURIComponent(q2)}`,{signal:AbortSignal.timeout(5000)});
+      const json2=await resp2.json();
+      if(json2.results&&json2.results.length){
+        data.postcode=json2.results[0].zipcode;
+        console.log('Postal found (zipcloud):',data.postcode);return;
+      }
+    }catch(e2){console.log('zipcloud failed:',e2);}
+    // Strategy 3: GeoAPI suggest (fallback)
+    try{
+      const q3=m[1]+(m[2]||'');
+      const resp3=await fetch(`https://geoapi.heartrails.com/api/json?method=suggest&keyword=${encodeURIComponent(q3)}`,{signal:AbortSignal.timeout(4000)});
+      const json3=await resp3.json();
+      if(json3.response&&json3.response.location&&json3.response.location.length){
+        const loc=json3.response.location[0];
+        if(loc.postal){data.postcode=loc.postal;console.log('Postal found (suggest):',data.postcode);return;}
+      }
+    }catch(e3){console.log('suggest failed:',e3);}
   }catch(e){console.log('Postal code lookup failed:',e);}
 }
 
@@ -566,29 +653,54 @@ async function ocrCertificate(imgDataUrl,certKey){
     console.log(`OCR cert [${certKey}]:`,text);
     // Try to extract certificate name and date
     let certName='',certDate='';
-    // Common certificate patterns
-    if(/介護技能評価試験/.test(text))certName='介護技能評価試験';
-    else if(/介護日本語評価試験/.test(text))certName='介護日本語評価試験';
-    else if(/国際交流基金日本語基礎テスト|JFT[\s-]*Basic/i.test(text))certName='国際交流基金日本語基礎テスト';
-    else if(/日本語能力試験|JLPT/i.test(text)){
-      const lvl=text.match(/N([1-5])/);certName='日本語能力試験'+(lvl?' N'+lvl[1]:'');
+    // Common certificate patterns (ordered by specificity)
+    const certPatterns=[
+      [/介護技能評価試験/,'介護技能評価試験'],
+      [/介護日本語評価試験/,'介護日本語評価試験'],
+      [/国際交流基金日本語基礎テスト|JFT[\s-]*Basic/i,'国際交流基金日本語基礎テスト'],
+      [/日本語能力試験|JLPT/i,'JLPT'],
+      [/特定技能.*?評価|技能評価試験/,'特定技能評価試験'],
+      [/介護福祉士/,'介護福祉士'],
+      [/介護職員初任者研修/,'介護職員初任者研修'],
+      [/実務者研修/,'実務者研修'],
+      [/建設機械施工/,'建設機械施工技士'],
+      [/溶接|welding/i,'溶接技能'],
+      [/電気工事士/,'電気工事士'],
+      [/食品衛生/,'食品衛生責任者'],
+      [/フォークリフト|forklift/i,'フォークリフト運転技能'],
+      [/玉掛/,'玉掛け技能'],
+      [/運転免許|driver.*?license/i,'運転免許'],
+      [/NAT[\s-]*TEST/i,'NAT-TEST'],
+      [/J[\s-]*TEST/i,'J-TEST'],
+    ];
+    for(const[pat,name] of certPatterns){
+      if(pat.test(text)){
+        certName=name;
+        // For JLPT, extract level
+        if(name==='JLPT'){const lvl=text.match(/N([1-5])/);certName='日本語能力試験'+(lvl?' N'+lvl[1]:'');}
+        // For NAT-TEST, extract level
+        if(name==='NAT-TEST'){const lvl=text.match(/(\d)級/);certName='NAT-TEST'+(lvl?' '+lvl[1]+'級':'');}
+        break;
+      }
     }
-    else if(/特定技能/.test(text))certName='特定技能評価試験';
-    else if(/介護職員初任者研修/.test(text))certName='介護職員初任者研修';
-    else if(/運転免許|driver/i.test(text))certName='運転免許';
-    // Extract date
-    const dateMatch=text.match(/(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]?\s*(\d{0,2})/);
-    if(dateMatch){
-      const yr=parseInt(dateMatch[1]);
-      if(yr>2015&&yr<2030)certDate=`${dateMatch[1]}/${dateMatch[2].padStart(2,'0')}`;
+    // Extract date: Western calendar
+    let dateMatch=text.match(/(\d{4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]?\s*(\d{0,2})/);
+    if(dateMatch){const yr=parseInt(dateMatch[1]);if(yr>2015&&yr<2040)certDate=`${dateMatch[1]}/${dateMatch[2].padStart(2,'0')}`;}
+    // Extract date: Japanese era (令和)
+    if(!certDate){
+      const eraMatch=text.match(/令和\s*(\d{1,2})\s*年\s*(\d{1,2})\s*月/);
+      if(eraMatch){const yr=2018+parseInt(eraMatch[1]);certDate=`${yr}/${eraMatch[2].padStart(2,'0')}`;}
+      const eraMatch2=text.match(/平成\s*(\d{1,2})\s*年\s*(\d{1,2})\s*月/);
+      if(!certDate&&eraMatch2){const yr=1988+parseInt(eraMatch2[1]);certDate=`${yr}/${eraMatch2[2].padStart(2,'0')}`;}
     }
     // Check pass/fail
     let result='';
-    if(/合格|passed|pass/i.test(text))result='合格';
-    else if(/判定.*?A|A.*?判定/.test(text))result='判定 A 合格';
+    if(/合格|passed|pass|PASS/i.test(text))result='合格';
+    else if(/判定.*?A|A.*?判定|A2以上/.test(text))result='判定　合格';
+    else if(/取得|修了|完了/.test(text))result='取得';
     // Auto-add to licRows if we found something
     if(certName){
-      const fullDetail=certName+(result?'　　　　'+result:'');
+      const fullDetail=certName+(result?'　　　　　　　　　　　　　'+result:'');
       // Check if already exists
       const exists=licRows.some(r=>r.detail&&r.detail.includes(certName));
       if(!exists){
@@ -599,8 +711,8 @@ async function ocrCertificate(imgDataUrl,certKey){
       }
       console.log('Cert auto-added:',certDate,fullDetail);
     }
-    el.textContent='✅ '+(certName?certName+' '+result:'Đọc xong');el.style.background='#2e7d32';
-    setTimeout(()=>el.remove(),2500);
+    el.textContent='✅ '+(certName?certName+(result?' '+result:''):'Đọc xong');el.style.background='#2e7d32';
+    setTimeout(()=>{el.remove();showStep();},2500);
   }catch(e){console.log('Cert OCR failed:',e);const el=document.getElementById('ocrStatus');if(el)el.remove();}
 }
 
@@ -840,21 +952,22 @@ async function generateWord(){
   const borders={top:bdr,bottom:bdr,left:bdr,right:bdr},noBorders={top:noBdr,bottom:noBdr,left:noBdr,right:noBdr};
   // Match template: MS 明朝 font, total width 10490 DXA, A4 page
   const F="ＭＳ 明朝",F2="Times New Roman",TW=10490;
-  // Column widths matching template: 6 columns
-  const W0=1843,W1=1701,W2=1822,W3=2100,W4=524,W5=2500;
+  // Column widths matching template: 6 grid columns (from XML tblGrid)
+  const W0=1843,W1=1701,W2=1973,W3=2421,W4=130,W5=2422;
   // W0+W1+W2+W3+W4+W5 = 10490
 
   function mkCell(text,w,o={}){
     const lines=(text||'').split('\n');
     const pars=lines.map(line=>new Paragraph({
       alignment:o.center?AlignmentType.CENTER:o.right?AlignmentType.RIGHT:AlignmentType.LEFT,
-      spacing:{before:20,after:20},
-      children:[new TextRun({text:line,bold:!!o.bold,size:o.size||20,font:o.font||F,color:o.color||"000000"})]
+      spacing:{before:25,after:25},
+      children:[new TextRun({text:line,bold:!!o.bold,size:o.size||22,font:o.font||F,color:o.color||"000000"})]
     }));
     return new TableCell({
       width:{size:w,type:WidthType.DXA},
       borders:o.nb?noBorders:borders,
       verticalAlign:o.vtop?VerticalAlign.TOP:VerticalAlign.CENTER,
+      margins:{top:25,bottom:25,left:80,right:80},
       children:pars.length?pars:[new Paragraph({children:[]})],
       columnSpan:o.cs,rowSpan:o.rs
     });
@@ -877,25 +990,25 @@ async function generateWord(){
 
   // Row 0: 履歴書 title + date (col0-1 merged=span2, col2-5 merged=span4 but template shows span2+span2)
   t0rows.push(new TableRow({height:{value:450,rule:HeightRule.AT_LEAST},children:[
-    mkCell("履　歴　書",W0+W1,{cs:2,bold:true,size:36,font:F}),
-    mkCell(`${yy}年　${mm}月　${dd}日現在`,W2+W3+W4+W5,{cs:4,right:true,size:20})
+    mkCell("履　歴　書",W0+W1,{cs:2,bold:true,size:40,font:F}),
+    mkCell(`${yy}年　${mm}月　${dd}日現在`,W2+W3+W4+W5,{cs:4,right:true,size:22})
   ]}));
 
   // Row 1: ふりがな + name reading + PHOTO (rowSpan 2)
   const photoW=W4+W5; // right side for photo
   const nameW=W1+W2+W3; // middle cols for name
   t0rows.push(new TableRow({height:{value:194,rule:HeightRule.AT_LEAST},children:[
-    mkCell("ふりがな",W0,{size:16}),
-    mkCell(D.furigana||'',nameW,{cs:3,size:18}),
+    mkCell("ふりがな",W0,{size:22}),
+    mkCell(D.furigana||'',nameW,{cs:3,size:22}),
     photoBlob?new TableCell({width:{size:photoW,type:WidthType.DXA},borders,verticalAlign:VerticalAlign.CENTER,rowSpan:2,columnSpan:2,children:[
-      new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:photoBlob,transformation:{width:90,height:120},type:'png'})]})
+      new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:photoBlob,transformation:{width:113,height:151},type:'png'})]})
     ]}):mkCell("写真\n(3×4cm)",photoW,{cs:2,rs:2,center:true,size:16,color:"999999"})
   ]}));
 
   // Row 2: 氏名 + full name (photo continues via rowSpan)
   t0rows.push(new TableRow({height:{value:491,rule:HeightRule.AT_LEAST},children:[
-    mkCell("氏　名",W0,{bold:true,size:18}),
-    mkCell(D.fullname||'',nameW,{cs:3,size:28,bold:true,font:F2})
+    mkCell("氏　名",W0,{bold:true,size:22}),
+    mkCell(D.fullname||'',nameW,{cs:3,size:32,bold:true,font:F2})
   ]}));
 
   // Row 3: 生年月日 (span 3~5 cols) + 性別
@@ -903,36 +1016,37 @@ async function generateWord(){
   const genderRaw=(D.gender||'');
   const genderJp=JP_DICT[genderRaw.toLowerCase()]||(/男/.test(genderRaw)?'男性':/女/.test(genderRaw)?'女性':genderRaw);
   t0rows.push(new TableRow({height:{value:324,rule:HeightRule.AT_LEAST},children:[
-    mkCell(dobStr,W0+W1+W2+W3+W4,{cs:5,size:20}),
-    mkCell(`性別　${genderJp}`,W5,{size:20,center:true})
+    mkCell(dobStr,W0+W1+W2+W3+W4,{cs:5,size:22}),
+    mkCell(`性別　${genderJp}`,W5,{size:22,center:true})
   ]}));
 
   // Row 4: 現住所 label with postcode (span all 6)
   t0rows.push(new TableRow({height:{value:216,rule:HeightRule.AT_LEAST},children:[
-    mkCell(`現住所（〒${D.postcode||'　　　-　　　'}）`,TW,{cs:6,size:18})
+    mkCell(`現住所（〒${D.postcode||'　　　-　　　'}）`,TW,{cs:6,size:22})
   ]}));
 
   // Row 5: Address detail (span all 6)
   t0rows.push(new TableRow({height:{value:364,rule:HeightRule.AT_LEAST},children:[
-    mkCell(D.address||'',TW,{cs:6,size:20})
+    mkCell(D.address||'',TW,{cs:6,size:22})
   ]}));
 
-  // Row 6: 在留資格 (span all 6)
+  // Row 6: 在留資格 + 期限（同じ行にカッコで付記）(span all 6)
   const veStr=D.visa_exp?(()=>{const d=new Date(D.visa_exp);return`${d.getFullYear()}年${String(d.getMonth()+1).padStart(2,'0')}月${String(d.getDate()).padStart(2,'0')}日`;})():'';
+  const visaLine=D.visa?(D.visa+(veStr?`（${veStr}まで）`:'')):'';
   t0rows.push(new TableRow({height:{value:358,rule:HeightRule.AT_LEAST},children:[
-    mkCell(`在留資格　　${D.visa||''}（${veStr}）`,TW,{cs:6,size:20})
+    mkCell(`在留資格　　${visaLine}`,TW,{cs:6,size:22})
   ]}));
 
-  // Row 7: 国籍 | value | 配偶者 (span3) | 扶養者
+  // Row 7: 国籍 | value | 配偶者 (span3) | 扶養者 (有/無 only, no numbers)
   const spRaw=(D.spouse||'').toLowerCase();
   const sv2=spRaw.includes('有')||spRaw.includes('có')||spRaw.includes('ya')||spRaw.includes('yes')?'有':'無';
   const dpRaw=(D.dependents||'').toLowerCase();
   const dv2=dpRaw.includes('有')||dpRaw.includes('có')||dpRaw.includes('ya')||dpRaw.includes('yes')?'有':'無';
   t0rows.push(new TableRow({height:{value:389,rule:HeightRule.AT_LEAST},children:[
-    mkCell("国籍",W0,{size:18}),
-    mkCell(D.nationality||'',W1,{size:20}),
-    mkCell(`配偶者:　${sv2}`,W2+W3+W4,{cs:3,size:20}),
-    mkCell(`扶養者:　${dv2}`,W5,{size:20})
+    mkCell("国籍",W0,{size:22}),
+    mkCell(D.nationality||'',W1,{size:22}),
+    mkCell(`配偶者:　${sv2}`,W2+W3+W4,{cs:3,size:22}),
+    mkCell(`扶養者:　${dv2}`,W5,{size:22})
   ]}));
 
   // Row 8: Empty separator (span all 6)
@@ -942,36 +1056,36 @@ async function generateWord(){
 
   // Row 9: Header — 開始年月 | 終了年月 | 学歴・職歴
   t0rows.push(new TableRow({height:{value:276,rule:HeightRule.AT_LEAST},children:[
-    mkCell("開始年月",W0,{bold:true,size:18,center:true}),
-    mkCell("終了年月",W1,{bold:true,size:18,center:true}),
-    mkCell("学　歴 ・ 職　歴（各別にまとめて書く）",W2+W3+W4+W5,{cs:4,bold:true,size:18,center:true})
+    mkCell("開始年月",W0,{bold:true,size:22,center:true}),
+    mkCell("終了年月",W1,{bold:true,size:22,center:true}),
+    mkCell("学　歴 ・ 職　歴（各別にまとめて書く）",W2+W3+W4+W5,{cs:4,bold:true,size:22,center:true})
   ]}));
 
   // Row 10: 学歴 label
   t0rows.push(new TableRow({height:{value:271,rule:HeightRule.AT_LEAST},children:[
-    mkCell("",W0,{size:18}),mkCell("",W1,{size:18}),
-    mkCell("学歴",W2+W3+W4+W5,{cs:4,center:true,bold:true,size:20})
+    mkCell("",W0),mkCell("",W1),
+    mkCell("学歴",W2+W3+W4+W5,{cs:4,center:true,bold:true,size:22})
   ]}));
 
   // Education rows (translated)
   tEduRows.filter(r=>r.detail).forEach(r=>{
     t0rows.push(new TableRow({height:{value:417,rule:HeightRule.AT_LEAST},children:[
-      mkCell(r.start?r.start.replace('/','年')+'月':'',W0,{center:true,size:18}),
-      mkCell(r.end?r.end.replace('/','年')+'月':'',W1,{center:true,size:18}),
-      mkCell(r.detail,W2+W3+W4+W5,{cs:4,size:20})
+      mkCell(r.start?r.start.replace('/','年')+'月':'',W0,{center:true,size:22}),
+      mkCell(r.end?r.end.replace('/','年')+'月':'',W1,{center:true,size:22}),
+      mkCell(r.detail,W2+W3+W4+W5,{cs:4,size:22})
     ]}));
   });
 
   // 以上 for education
   t0rows.push(new TableRow({height:{value:364,rule:HeightRule.AT_LEAST},children:[
     mkCell("",W0),mkCell("",W1),
-    mkCell("以上",W2+W3+W4+W5,{cs:4,right:true,size:18})
+    mkCell("以上",W2+W3+W4+W5,{cs:4,right:true,size:22})
   ]}));
 
   // 職歴 label
   t0rows.push(new TableRow({height:{value:229,rule:HeightRule.AT_LEAST},children:[
     mkCell("",W0),mkCell("",W1),
-    mkCell("職歴",W2+W3+W4+W5,{cs:4,center:true,bold:true,size:20})
+    mkCell("職歴",W2+W3+W4+W5,{cs:4,center:true,bold:true,size:22})
   ]}));
 
   // Work rows — translated, include country prefix and visa
@@ -981,16 +1095,16 @@ async function generateWord(){
     const visaSuffix=r.country==='jp'&&r.visa?'（'+r.visa+'）':'';
     const workText=countryPrefix+r.detail+(visaSuffix?'\n'+visaSuffix:'');
     t0rows.push(new TableRow({height:{value:645,rule:HeightRule.AT_LEAST},children:[
-      mkCell(r.start?r.start.replace('/','年')+'月':'',W0,{center:true,size:18}),
-      mkCell(endVal,W1,{center:true,size:18}),
-      mkCell(workText,W2+W3+W4+W5,{cs:4,size:20})
+      mkCell(r.start?r.start.replace('/','年')+'月':'',W0,{center:true,size:22}),
+      mkCell(endVal,W1,{center:true,size:22}),
+      mkCell(workText,W2+W3+W4+W5,{cs:4,size:22})
     ]}));
   });
 
   // 以上 for work
   t0rows.push(new TableRow({height:{value:401,rule:HeightRule.AT_LEAST},children:[
     mkCell("",W0),mkCell("",W1),
-    mkCell("以上",W2+W3+W4+W5,{cs:4,right:true,size:18})
+    mkCell("以上",W2+W3+W4+W5,{cs:4,right:true,size:22})
   ]}));
 
   DC.push(new Table({rows:t0rows,width:{size:TW,type:WidthType.DXA}}));
@@ -1002,21 +1116,21 @@ async function generateWord(){
   const LW0=1843,LW1=8647,lR=[];
 
   lR.push(new TableRow({height:{value:250,rule:HeightRule.AT_LEAST},children:[
-    mkCell("年",LW0,{bold:true,size:18,center:true}),
-    mkCell("免　許 ・ 資　格",LW1,{bold:true,size:18,center:true})
+    mkCell("年",LW0,{bold:true,size:22,center:true}),
+    mkCell("免　許 ・ 資　格",LW1,{bold:true,size:22,center:true})
   ]}));
 
   tLicRows.filter(r=>r.detail).forEach(r=>{
     let dt=r.detail||'';
-    if(!/合格|不合格|判定|取得/.test(dt)&&dt) dt+='　　　　　　　　　　　　　合格';
+    if(!/合格|不合格|判定|取得|修了/.test(dt)&&dt) dt+='　　　　　　　　　　　　　合格';
     lR.push(new TableRow({height:{value:458,rule:HeightRule.AT_LEAST},children:[
-      mkCell(r.date?r.date.replace('/','年')+'月':'',LW0,{center:true,size:18}),
-      mkCell(dt,LW1,{size:20})
+      mkCell(r.date?r.date.replace('/','年')+'月':'',LW0,{center:true,size:22}),
+      mkCell(dt,LW1,{size:22})
     ]}));
   });
 
   lR.push(new TableRow({height:{value:424,rule:HeightRule.AT_LEAST},children:[
-    mkCell("",LW0),mkCell("以上",LW1,{right:true,size:18})
+    mkCell("",LW0),mkCell("　以上",LW1,{right:true,size:22})
   ]}));
 
   // Empty bottom row like template
@@ -1025,20 +1139,17 @@ async function generateWord(){
   ]}));
 
   DC.push(new Table({rows:lR,width:{size:TW,type:WidthType.DXA}}));
-  DC.push(new Paragraph({spacing:{after:60},children:[]}));
+  DC.push(new Paragraph({spacing:{after:40},children:[]}));
 
   // ============================================================
   //  TABLE 2: 備考 (matching template: col0=1838, col1=8647)
   // ============================================================
   DC.push(new Table({rows:[new TableRow({height:{value:665,rule:HeightRule.AT_LEAST},children:[
-    mkCell("備考",1838,{bold:true,size:18,vtop:true}),
-    mkCell(D.remarks||'',8652,{size:20,vtop:true})
+    mkCell("備考",1838,{bold:true,size:22,vtop:true}),
+    mkCell(D.remarks||'',8652,{size:22,vtop:true})
   ]})],width:{size:TW,type:WidthType.DXA}}));
 
-  // Images/certificates are NOT embedded in Word — they go in the ZIP separately
-  DC.push(new Paragraph({spacing:{before:200},children:[new TextRun({text:"YourBright Co., Ltd.",size:16,font:F,color:"888888"})]}));
-
-  return await Packer.toBlob(new Document({sections:[{properties:{page:{size:{width:11906,height:16838},margin:{top:567,right:567,bottom:567,left:567}}},children:DC}]}));
+  return await Packer.toBlob(new Document({sections:[{properties:{page:{size:{width:11906,height:16838},margin:{top:600,right:700,bottom:600,left:700}}},children:DC}]}));
 }
 
 // =========================================================
