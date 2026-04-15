@@ -363,7 +363,7 @@ function showStep(){
   // Show hint for fullname field
   if(f.key==='fullname'&&t('fullnameHint'))h+=`<div class="hint-box">${t('fullnameHint').replace(/\n/g,'<br>')}</div>`;
   // Show auto-filled indicator
-  if(sv&&(ocrFrontDone||ocrBackDone)&&['fullname','dob','gender','nationality','address','visa','visa_exp','postcode'].includes(f.key))h+=`<div style="color:#2e7d32;font-size:11px;margin-bottom:4px">✅ ${t('autoFilled')||'(auto-filled from residence card)'}</div>`;
+  // Auto-fill indicator (disabled — manual input only)
   if(f.type==='text'||f.type==='tel'||f.type==='email')h+=`<input type="${f.type}" class="q-input" id="qInput" value="${sv}">`;
   else if(f.type==='date')h+=`<input type="date" class="q-input" id="qInput" value="${sv}">`;
   else if(f.type==='select'){const o=getOpts(f.opts);h+=`<select class="q-input" id="qInput"><option value="">--</option>${o.map(x=>`<option value="${x}"${sv===x?' selected':''}>${x}</option>`).join('')}</select>`;}
@@ -496,10 +496,11 @@ function showOcrStatus(msg,color){
   return el;
 }
 
-// ===== OCR: 在留カード =====
+// ===== OCR: 在留カード (disabled auto-fill — ứng viên tự điền) =====
 async function runOCR(imgDataUrl,side){
-  if(side==='front'&&ocrFrontDone)return;
-  if(side==='back'&&ocrBackDone)return;
+  // OCR auto-fill disabled — chỉ upload ảnh, ứng viên tự điền thông tin
+  console.log('OCR disabled — candidate fills manually');
+  return;
   const el=showOcrStatus('🔍 '+(t('ocrReading')||'Đang đọc thẻ ngoại kiều...'));
   try{
     const text=await ocrImage(imgDataUrl);
@@ -722,19 +723,13 @@ async function lookupPostalCode(address){
   }catch(e){console.log('Postal code lookup failed:',e);}
 }
 
-// ===== OCR: CERTIFICATES =====
+// ===== CERTIFICATES (upload only, no OCR auto-fill) =====
 function onCert(key,inp){
   const files=Array.from(inp.files);if(!files.length)return;
   let loaded=0;
   files.forEach(file=>{const r=new FileReader();r.onload=e=>{
     certFiles[key].push({name:file.name,data:e.target.result});loaded++;
-    // OCR each image file immediately
-    if(file.type.startsWith('image/')){
-      ocrCertificate(e.target.result,key);
-    }
-    if(loaded===files.length){
-      showStep();
-    }
+    if(loaded===files.length) showStep();
   };r.readAsDataURL(file);});
 }
 async function ocrCertificate(imgDataUrl,certKey){
@@ -1267,59 +1262,85 @@ async function doDownloadZip(){
   try{const z=await createZip();const nm=(data.fullname||'profile').replace(/\s+/g,'_');saveAs(z,`履歴書_${nm}_${new Date().toISOString().slice(0,10)}.zip`);hideLoading();showSuccess();}
   catch(e){hideLoading();alert('Error: '+e.message);console.error(e);}
 }
+// ★★★ QUAN TRỌNG: Dán URL Google Apps Script vào đây ★★★
+// Xem file "email-server-script.gs" để biết cách tạo URL
+const APPS_SCRIPT_URL='';// ← Dán URL vào đây, ví dụ: 'https://script.google.com/macros/s/AKfycb.../exec'
+
 async function doEmailZip(){
   const sel=getSelectedEmails();if(!sel.length){alert('Please select email!');return;}
+
+  // Check if Apps Script URL is configured
+  if(!APPS_SCRIPT_URL){
+    alert('⚠️ Chưa cấu hình email server!\n\nVui lòng setup Google Apps Script theo hướng dẫn trong file "email-server-script.gs" và dán URL vào code.\n\nFile ZIP sẽ được tải về máy.');
+    showLoading();
+    try{
+      const z=await createZip();const nm=(data.fullname||'profile').replace(/\s+/g,'_');
+      saveAs(z,`履歴書_${nm}_${new Date().toISOString().slice(0,10)}.zip`);
+      hideLoading();showSuccess();
+    }catch(e){hideLoading();alert('Error: '+e.message);}
+    return;
+  }
+
   showLoading(t('sendingEmail')||'Đang gửi email...','📧');
   try{
-    const z=await createZip();
-    const nm=(data.fullname||'profile').replace(/\s+/g,'_');
-    const fname=`履歴書_${nm}_${new Date().toISOString().slice(0,10)}.zip`;
-    // Also save locally as backup
-    saveAs(z,fname);
+    // Generate ZIP as base64 for sending
+    const zip=new JSZip(),nm=(data.fullname||'profile').replace(/\s+/g,'_'),ds=new Date().toISOString().slice(0,10);
+    const wordBlob=await generateWord();
+    zip.file(`履歴書_${nm}_${ds}.docx`,wordBlob);
+    const folder=zip.folder(`写真_${nm}`);
+    if(photoData)folder.file(`証明写真_3x4.jpg`,d2b(photoData));
+    zairyuFront.forEach((f,i)=>folder.file(`在留カード_表_${i+1}.${gExt(f.name)}`,d2b(f.data)));
+    zairyuBack.forEach((f,i)=>folder.file(`在留カード_裏_${i+1}.${gExt(f.name)}`,d2b(f.data)));
+    const certNames={certSenmon:'専門級',certLicense:'運転免許',certJlpt:'日本語_JLPT',certTokutei:'特定技能',certOther:'その他'};
+    Object.entries(certFiles).forEach(([k,arr])=>{arr.forEach((f,i)=>folder.file(`${certNames[k]||k}_${i+1}.${gExt(f.name)}`,d2b(f.data)));});
 
-    // Auto-send via FormSubmit.co (free, no backend needed)
-    const primary=sel[0];
-    const cc=sel.slice(1).join(',');
-    const fd=new FormData();
-    fd.append('_subject',`履歴書 - ${data.fullname||''}`);
-    fd.append('_cc',cc);
-    fd.append('_captcha','false');
-    fd.append('_template','table');
-    fd.append('_autoresponse',t('emailAutoReply')||'ご応募ありがとうございます。履歴書を受け取りました。');
-    fd.append('氏名 (Name)',data.fullname||'-');
-    fd.append('フリガナ',data.furigana||'-');
-    fd.append('国籍 (Nationality)',data.nationality||'-');
-    fd.append('在留資格 (Visa)',data.visa||'-');
-    fd.append('電話 (Phone)',data.phone||'-');
-    fd.append('Email',data.email||'-');
-    fd.append('attachment',z,fname);
+    const fname=`履歴書_${nm}_${ds}.zip`;
 
-    const resp=await fetch(`https://formsubmit.co/ajax/${primary}`,{
-      method:'POST',body:fd,
-      headers:{'Accept':'application/json'}
+    // Generate both blob (for local save) and base64 (for email)
+    const zipBlob=await zip.generateAsync({type:'blob'});
+    const zipBase64=await zip.generateAsync({type:'base64'});
+
+    // Save locally as backup
+    saveAs(zipBlob,fname);
+
+    // Send via Google Apps Script
+    const resp=await fetch(APPS_SCRIPT_URL,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({
+        emails:sel,
+        fullname:data.fullname||'',
+        furigana:data.furigana||'',
+        nationality:data.nationality||'',
+        visa:data.visa||'',
+        phone:data.phone||'',
+        email:data.email||'',
+        zipBase64:zipBase64,
+        fileName:fname
+      })
     });
-    const result=await resp.json();
+
+    let result;
+    try{result=await resp.json();}catch(e){result={success:resp.ok};}
 
     hideLoading();
-    if(resp.ok&&result.success){
-      alert(t('emailSent')||`✅ Email đã gửi thành công đến:\n${sel.join('\n')}\n\n📎 File ${fname} cũng đã tải về máy.`);
+    if(result.success){
+      alert(`✅ Email đã gửi thành công!\n\n📧 Đã gửi đến:\n${sel.join('\n')}\n\n📎 File ${fname} cũng đã tải về máy.`);
       showSuccess();
     }else{
-      // FormSubmit may need email verification first time
-      console.log('FormSubmit response:',result);
-      alert(t('emailVerify')||`⚠️ Lần đầu sử dụng: FormSubmit đã gửi email xác nhận đến ${primary}.\nVui lòng kiểm tra hộp thư và nhấn xác nhận, sau đó thử gửi lại.\n\n📎 File ZIP đã tải về máy.`);
+      console.error('Apps Script error:',result);
+      alert(`⚠️ Gửi email thất bại: ${result.error||'Unknown error'}\n\n📎 File ZIP đã tải về máy.`);
       showSuccess();
     }
   }catch(e){
     hideLoading();
     console.error('Email error:',e);
-    // Fallback: open Gmail compose
-    const nm=(data.fullname||'profile').replace(/\s+/g,'_');
-    const subj=encodeURIComponent(`履歴書 - ${data.fullname||''}`);
-    const body=encodeURIComponent(`履歴書を送付いたします。\n\n氏名: ${data.fullname||'-'}\n国籍: ${data.nationality||'-'}\n\n※ ZIPファイルを添付してください\n\n---\nYourBright Co., Ltd.`);
-    const to=sel.join(',');
-    window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(to)}&su=${subj}&body=${body}`,'_blank');
-    alert(`⚠️ Không gửi tự động được. Gmail đã mở → đính kèm file ZIP vừa tải.\n\n📎 履歴書_${nm}.zip`);
+    // Fallback: save locally
+    try{
+      const z=await createZip();const nm2=(data.fullname||'profile').replace(/\s+/g,'_');
+      saveAs(z,`履歴書_${nm2}_${new Date().toISOString().slice(0,10)}.zip`);
+    }catch(e2){}
+    alert(`⚠️ Không gửi được email (${e.message}).\n\n📎 File ZIP đã tải về máy.`);
     showSuccess();
   }
 }
