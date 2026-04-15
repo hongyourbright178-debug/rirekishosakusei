@@ -195,11 +195,13 @@ select.q-input{cursor:pointer;appearance:auto}
 //  FIELDS
 // =========================================================
 const FIELDS=[
+  {key:'photo',jp:'証明写真 (3×4)',type:'photo'},
+  {key:'zairyu',jp:'在留カード（写真）',type:'photo_zairyu'},
+  {key:'cert_photos',jp:'証明書アップロード',type:'cert_upload'},
   {key:'furigana',jp:'ふりがな',type:'text'},
   {key:'fullname',jp:'氏名',type:'text'},
   {key:'dob',jp:'生年月日',type:'date'},
   {key:'gender',jp:'性別',type:'select',opts:'gender'},
-  {key:'photo',jp:'証明写真 (3×4)',type:'photo'},
   {key:'nationality',jp:'国籍',type:'text'},
   {key:'postcode',jp:'郵便番号',type:'text'},
   {key:'address',jp:'現住所',type:'text'},
@@ -209,8 +211,6 @@ const FIELDS=[
   {key:'visa_exp',jp:'在留期限',type:'date'},
   {key:'spouse',jp:'配偶者の有無',type:'select',opts:'yesno'},
   {key:'dependents',jp:'扶養者の有無',type:'select',opts:'yesno'},
-  {key:'zairyu',jp:'在留カード（写真）',type:'photo_zairyu'},
-  {key:'cert_photos',jp:'証明書アップロード',type:'cert_upload'},
   {key:'education',jp:'学歴',type:'dynamic_edu'},
   {key:'work',jp:'職歴',type:'dynamic_work'},
   {key:'license',jp:'免許・資格',type:'dynamic_license'},
@@ -232,7 +232,7 @@ vi:{
   male:"Nam 男",female:"Nữ 女",other:"Khác",yes:"Có 有",no:"Không 無",
   addRow:"+ Thêm dòng",startDate:"Bắt đầu",endDate:"Kết thúc",detail:"Nội dung",
   uploadPhoto:"Nhấn để tải ảnh",
-  furigana:"Tên phiên âm (Katakana)",fullname:"Họ và tên đầy đủ",dob:"Ngày sinh",
+  furigana:"Tên phiên âm (Katakana)",fullname:"Họ và tên đầy đủ",fullnameHint:"⚠️ Viết IN HOA, không dấu, theo tiếng Anh\n(VD: NGUYEN THI HONG)",dob:"Ngày sinh",
   gender:"Giới tính",photo:"Ảnh chân dung (3×4)",postcode:"Mã bưu điện (〒)",
   address:"Địa chỉ hiện tại tại Nhật",phone:"Số điện thoại",email:"Email",
   visa:"Tư cách lưu trú (在留資格)",visa_exp:"Thời hạn lưu trú",
@@ -253,12 +253,17 @@ vi:{
   certOther:"Chứng chỉ khác",
   uploadClick:"Nhấn chọn file (ảnh hoặc PDF)",uploaded:"Đã upload",
   zairyuFront:"Mặt trước",zairyuBack:"Mặt sau",
-  generating:"Đang tạo file...",pleaseWait:"Vui lòng đợi",
+  generating:"Đang dịch sang tiếng Nhật và tạo file...",pleaseWait:"Vui lòng đợi",
   emailReady:"File đã tải xong! Vui lòng đính kèm file ZIP vào email.",
   multiFile:"Có thể chọn nhiều file cùng lúc",
   workCountry:"Quốc gia làm việc",workVisa:"Tư cách lưu trú tại Nhật",
   countryJP:"Nhật Bản 日本",countryHome:"Quốc gia của tôi",countryOther:"Quốc gia khác",
   workJobType:"Nội dung công việc / Visa",
+  uploadFirst:"📸 Hãy upload ảnh thẻ ngoại kiều và bằng cấp trước. Hệ thống sẽ hiện ảnh để bạn tham khảo khi điền thông tin.",
+  refImages:"📋 Tham khảo ảnh đã upload:",
+  emailStep1:"1️⃣ File ZIP đã tải xuống máy",
+  emailStep2:"2️⃣ Ứng dụng email sẽ mở ra → đính kèm file ZIP vừa tải",
+  emailStep3:"3️⃣ Nhấn Gửi để hoàn tất",
 },
 id:{
   welcome:"Selamat Datang!",welcomeDesc:"Silakan jawab pertanyaan berikut untuk membuat 履歴書.",
@@ -268,7 +273,7 @@ id:{
   reviewT:"Periksa",reviewD:"Periksa sebelum mengirim:",emailT:"Pilih email:",qLabel:"Pertanyaan",
   male:"Laki-laki 男",female:"Perempuan 女",other:"Lainnya",yes:"Ya 有",no:"Tidak 無",
   addRow:"+ Tambah",startDate:"Mulai",endDate:"Selesai",detail:"Isi",uploadPhoto:"Klik upload",
-  furigana:"Nama Katakana",fullname:"Nama lengkap",dob:"Tanggal lahir",
+  furigana:"Nama Katakana",fullname:"Nama lengkap",fullnameHint:"⚠️ Tulis HURUF BESAR, tanpa aksen, dalam bahasa Inggris\n(contoh: NGUYEN THI HONG)",dob:"Tanggal lahir",
   gender:"Jenis kelamin",photo:"Foto (3×4)",postcode:"Kode pos (〒)",
   address:"Alamat di Jepang",phone:"No. telepon",email:"Email",
   visa:"Status tinggal",visa_exp:"Masa berlaku visa",nationality:"Kewarganegaraan",
@@ -287,6 +292,9 @@ id:{
   generating:"Membuat...",pleaseWait:"Tunggu",emailReady:"File siap!",multiFile:"Bisa pilih banyak file",
   workCountry:"Negara kerja",workVisa:"Status tinggal di Jepang",
   countryJP:"Jepang 日本",countryHome:"Negara saya",countryOther:"Negara lain",workJobType:"Jenis pekerjaan / Visa",
+  uploadFirst:"📸 Upload foto kartu tinggal & sertifikat dulu. Foto akan ditampilkan saat mengisi formulir.",
+  refImages:"📋 Referensi foto:",
+  emailStep1:"1️⃣ File ZIP sudah diunduh",emailStep2:"2️⃣ Lampirkan file ZIP di email",emailStep3:"3️⃣ Kirim email",
 },
 km:{welcome:"សូមស្វាគមន៍!",welcomeDesc:"ឆ្លើយសំណួរដើម្បីបង្កើត 履歴書។",start:"ចាប់ផ្តើម",prev:"← ថយក្រោយ",next:"បន្ទាប់ →",submit:"បញ្ជាក់ ✓",download:"ទាញយក ZIP",sendEmail:"ផ្ញើអ៊ីមែល",restart:"ធ្វើម្តងទៀត",successT:"រួចរាល់!",successD:"បង្កើតដោយជោគជ័យ។",reviewT:"ពិនិត្យ",reviewD:"ពិនិត្យមុនផ្ញើ:",emailT:"ជ្រើសអ៊ីមែល:",qLabel:"សំណួរ",male:"ប្រុស 男",female:"ស្រី 女",other:"ផ្សេង",yes:"មាន 有",no:"គ្មាន 無",addRow:"+ បន្ថែម",startDate:"ចាប់ផ្តើម",endDate:"បញ្ចប់",detail:"ព័ត៌មាន",uploadPhoto:"បញ្ចូលរូប",furigana:"ឈ្មោះ Katakana",fullname:"ឈ្មោះពេញ",dob:"ថ្ងៃកំណើត",gender:"ភេទ",photo:"រូបថត (3×4)",postcode:"កូដប្រៃសណីយ៍",address:"អាសយដ្ឋាន",phone:"ទូរស័ព្ទ",email:"អ៊ីមែល",visa:"ស្ថានភាពស្នាក់នៅ",visa_exp:"ផុតកំណត់ទិដ្ឋាការ",nationality:"សញ្ជាតិ",spouse:"អាពាហ៍ពិពាហ៍",dependents:"អ្នកក្នុងបន្ទុក",education:"ការសិក្សា (学歴)",work:"បទពិសោធន៍ (職歴)",license:"វិញ្ញាបនបត្រ (免許・資格)",remarks:"កំណត់សម្គាល់ (備考)",zairyu:"កាតស្នាក់នៅ (在留カード)",cert_photos:"បញ្ចូលឯកសារ",eduHint:"សាលា មុខវិជ្ជា",eduNote1:"<b>⚠️:</b> សរសេរសាលា<b>ចុងក្រោយនៅប្រទេសអ្នក</b>។",eduNote2:"បើនៅជប៉ុន សរសេរ<b>គ្រប់សាលា</b>។",eduNote3:"បើរៀន<b>មជ្ឈមណ្ឌលភាសា</b>ក៏សរសេរផង។",workHint:"ក្រុមហ៊ុន តួនាទី",workNote1:"<b>⚠️:</b> សរសេរ<b>ពេញមុន</b>។",licHint:"វិញ្ញាបនបត្រ និងលទ្ធផល",current:"បច្ចុប្បន្ន",pass:"ជាប់",certSenmon:"専門級",certLicense:"បណ្ណបើកបរ",certJlpt:"JLPT/NAT",certTokutei:"特定技能",certOther:"ផ្សេង",uploadClick:"ជ្រើសឯកសារ",uploaded:"បានបញ្ចូល",zairyuFront:"ផ្នែកមុខ",zairyuBack:"ផ្នែកក្រោយ",generating:"កំពុងបង្កើត...",pleaseWait:"រង់ចាំ",emailReady:"រួចរាល់!",multiFile:"អាចជ្រើសច្រើន",workCountry:"ប្រទេសធ្វើការ",workVisa:"ស្ថានភាពស្នាក់នៅជប៉ុន",countryJP:"ជប៉ុន 日本",countryHome:"ប្រទេសរបស់ខ្ញុំ",countryOther:"ប្រទេសផ្សេង",workJobType:"ការងារ / Visa"},
 ne:{welcome:"स्वागत!",welcomeDesc:"履歴書 बनाउन प्रश्न जवाफ दिनुहोस्।",start:"सुरु",prev:"← पछाडि",next:"अर्को →",submit:"पुष्टि ✓",download:"ZIP डाउनलोड",sendEmail:"इमेल",restart:"फेरि",successT:"पूरा!",successD:"बनाइयो।",reviewT:"जाँच",reviewD:"पठाउनु अघि जाँच:",emailT:"इमेल छान्नुहोस्:",qLabel:"प्रश्न",male:"पुरुष 男",female:"महिला 女",other:"अन्य",yes:"छ 有",no:"छैन 無",addRow:"+ थप",startDate:"सुरु",endDate:"अन्त्य",detail:"विवरण",uploadPhoto:"फोटो अपलोड",furigana:"Katakana नाम",fullname:"पूरा नाम",dob:"जन्म मिति",gender:"लिङ्ग",photo:"फोटो (3×4)",postcode:"पोस्टल कोड",address:"ठेगाना",phone:"फोन",email:"इमेल",visa:"निवास",visa_exp:"भिसा समाप्ति",nationality:"राष्ट्रियता",spouse:"वैवाहिक",dependents:"आश्रित",education:"शिक्षा (学歴)",work:"कार्य अनुभव (職歴)",license:"प्रमाणपत्र (免許・資格)",remarks:"टिप्पणी (備考)",zairyu:"निवास कार्ड (在留カード)",cert_photos:"प्रमाणपत्र अपलोड",eduHint:"विद्यालय, विषय",eduNote1:"<b>⚠️:</b> <b>अन्तिम विद्यालय</b> लेख्नुहोस्।",eduNote2:"जापानमा <b>सबै विद्यालय</b> लेख्नुहोस्।",eduNote3:"<b>भाषा केन्द्र</b>मा पनि यहाँ लेख्नुहोस्।",workHint:"कम्पनी, पद",workNote1:"<b>⚠️:</b> <b>पूरा</b> लेख्नुहोस्।",licHint:"प्रमाणपत्र",current:"हाल",pass:"उत्तीर्ण",certSenmon:"専門級",certLicense:"सवारी",certJlpt:"JLPT/NAT",certTokutei:"特定技能",certOther:"अन्य",uploadClick:"फाइल छान्नुहोस्",uploaded:"अपलोड भयो",zairyuFront:"अगाडि",zairyuBack:"पछाडि",generating:"बनाउँदै...",pleaseWait:"पर्खनुहोस्",emailReady:"तयार!",multiFile:"धेरै फाइल छान्न सकिन्छ",workCountry:"कार्य देश",workVisa:"जापानमा बसोबास",countryJP:"जापान 日本",countryHome:"मेरो देश",countryOther:"अन्य देश",workJobType:"काम / Visa"},
@@ -350,19 +358,42 @@ function showStep(){
   document.getElementById('btnNext').textContent=step===TOTAL-1?t('submit'):t('next');
   const fl=t(f.key),sv=data[f.key]||'';
   let h=`<div class="q-number">${t('qLabel')} ${step+1} / ${TOTAL}</div><div class="q-title">${fl}</div><div class="q-title-jp">${f.jp}</div><div style="height:6px"></div>`;
+  // Show hint for fullname field
+  if(f.key==='fullname'&&t('fullnameHint'))h+=`<div class="hint-box">${t('fullnameHint').replace(/\n/g,'<br>')}</div>`;
   if(f.type==='text'||f.type==='tel'||f.type==='email')h+=`<input type="${f.type}" class="q-input" id="qInput" value="${sv}">`;
   else if(f.type==='date')h+=`<input type="date" class="q-input" id="qInput" value="${sv}">`;
   else if(f.type==='select'){const o=getOpts(f.opts);h+=`<select class="q-input" id="qInput"><option value="">--</option>${o.map(x=>`<option value="${x}"${sv===x?' selected':''}>${x}</option>`).join('')}</select>`;}
   else if(f.type==='textarea')h+=`<textarea class="q-input" id="qInput" rows="4">${sv}</textarea>`;
   else if(f.type==='photo')h+=buildPhotoUpload();
-  else if(f.type==='photo_zairyu')h+=buildZairyu();
+  else if(f.type==='photo_zairyu'){h+=`<div class="hint-box">${t('uploadFirst')||'📸 Upload your residence card and certificates first. They will be shown as reference while you fill in the form.'}</div>`;h+=buildZairyu();}
+
   else if(f.type==='dynamic_edu')h+=buildEdu();
   else if(f.type==='dynamic_work')h+=buildWork();
   else if(f.type==='dynamic_license')h+=buildLic();
   else if(f.type==='cert_upload')h+=buildCerts();
+  // Show reference images panel when filling text fields (after upload steps)
+  if(!['photo','photo_zairyu','cert_upload'].includes(f.type) && !f.type.startsWith('dynamic_') && hasUploadedFiles()){
+    h+=buildRefPanel();
+  }
   area.innerHTML=h;
   const inp=document.getElementById('qInput');
   if(inp){setTimeout(()=>inp.focus(),80);if(f.type!=='textarea')inp.addEventListener('keydown',e=>{if(e.key==='Enter')nextQuestion()});}
+}
+// Check if user has uploaded any reference files
+function hasUploadedFiles(){return zairyuFront.length||zairyuBack.length||Object.values(certFiles).some(a=>a.length);}
+// Build collapsible reference panel showing uploaded images
+function buildRefPanel(){
+  const imgs=[];
+  zairyuFront.forEach(f=>{if(f.data.startsWith('data:image/'))imgs.push({label:'在留カード 表',src:f.data});});
+  zairyuBack.forEach(f=>{if(f.data.startsWith('data:image/'))imgs.push({label:'在留カード 裏',src:f.data});});
+  Object.entries(certFiles).forEach(([k,arr])=>{arr.forEach(f=>{if(f.data.startsWith('data:image/'))imgs.push({label:t(k),src:f.data});});});
+  if(!imgs.length)return'';
+  let h=`<details class="ref-panel" style="margin-top:14px;background:#f0f4ff;border:1px solid #c5cae9;border-radius:10px;padding:10px 14px">
+    <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#3949ab">${t('refImages')||'📋 Reference images:'} (${imgs.length})</summary>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;max-height:250px;overflow-y:auto">`;
+  imgs.forEach(im=>{h+=`<div style="text-align:center"><img src="${im.src}" style="max-width:180px;max-height:120px;border-radius:6px;border:1px solid #ccc"><div style="font-size:10px;color:#666;margin-top:2px">${im.label}</div></div>`;});
+  h+=`</div></details>`;
+  return h;
 }
 
 // ===== PHOTO =====
@@ -506,6 +537,127 @@ function showLoading(m,s){document.getElementById('loadingText').textContent=m||
 function hideLoading(){document.getElementById('loadingOverlay').classList.add('hidden');}
 
 // =========================================================
+//  AUTO-TRANSLATE TO JAPANESE
+// =========================================================
+// Dictionary of common terms used in 履歴書 (all languages → Japanese)
+const JP_DICT=(function(){
+  const d={};
+  function add(arr,jp){arr.forEach(w=>d[w.toLowerCase().trim()]=jp);}
+  // Current / Present
+  add(['hiện tại','hien tai','hiên tai','sekarang','បច្ចុប្បន្ន','हाल','Одоо','现在','လက်ရှိ','ปัจจุบัน','বর্তমান','present','current','now'],'現在');
+  // Countries
+  add(['việt nam','viet nam','vietnam'],'ベトナム');
+  add(['indonesia','indonésia'],'インドネシア');
+  add(['campuchia','cambodia','កម្ពុជា','kambodia'],'カンボジア');
+  add(['nepal','नेपाल','ネパール'],'ネパール');
+  add(['mongolia','mông cổ','Монгол'],'モンゴル');
+  add(['trung quốc','trung quoc','china','中国','tiongkok','cina'],'中国');
+  add(['myanmar','ミャンマー','miến điện','mien dien','ミャンマー'],'ミャンマー');
+  add(['thái lan','thai lan','thailand','タイ'],'タイ');
+  add(['bangladesh','バングラデシュ','বাংলাদেশ'],'バングラデシュ');
+  add(['philippines','philippin','フィリピン'],'フィリピン');
+  add(['nhật bản','nhat ban','japan','jepang','日本'],'日本');
+  // Gender
+  add(['nam','laki-laki','male','ប្រុស','पुरुष','Эрэгтэй','男','ကျား','ชาย','পুরুষ'],'男性');
+  add(['nữ','nu','perempuan','female','ស្រី','महिला','Эмэгтэй','女','မ','หญิง','মহিলা'],'女性');
+  // Yes/No
+  add(['có','co','ya','yes','មាន','छ','Тийм','有','ရှိ','มี','হ্যাঁ'],'有');
+  add(['không','khong','tidak','no','គ្មាន','छैन','Үгүй','无','မရှိ','ไม่มี','না'],'無');
+  // Common job/industry terms
+  add(['nông nghiệp','nong nghiep','pertanian','agriculture','farming'],'農業');
+  add(['xây dựng','xay dung','konstruksi','construction'],'建設');
+  add(['chế biến thực phẩm','che bien thuc pham','pengolahan makanan','food processing','food manufacturing'],'食品製造');
+  add(['điều dưỡng','dieu duong','perawatan','nursing','caregiving','care','介護'],'介護');
+  add(['đóng gói','dong goi','pengemasan','packaging','packing'],'梱包');
+  add(['kiểm tra','kiem tra','pemeriksaan','inspection'],'検品');
+  add(['hàn','han','las','welding'],'溶接');
+  add(['sơn','son','pengecatan','painting'],'塗装');
+  add(['cơ khí','co khi','permesinan','machining','mechanical'],'機械');
+  add(['may mặc','may mac','menjahit','sewing','garment'],'縫製');
+  add(['tự doanh','tu doanh','wiraswasta','self-employed'],'自営業');
+  add(['thất nghiệp','that nghiep','pengangguran','unemployed'],'無職');
+  add(['nội trợ','noi tro','ibu rumah tangga','housewife','homemaker'],'主婦');
+  add(['nhân viên','nhan vien','karyawan','employee','staff'],'社員');
+  add(['công nhân','cong nhan','pekerja','worker'],'作業員');
+  // Education
+  add(['trung học phổ thông','trung hoc pho thong','SMA','high school','senior high'],'高等学校');
+  add(['trung học cơ sở','trung hoc co so','SMP','junior high','middle school'],'中学校');
+  add(['đại học','dai hoc','universitas','university'],'大学');
+  add(['cao đẳng','cao dang','college','diploma'],'短期大学');
+  add(['trường dạy nghề','truong day nghe','sekolah kejuruan','vocational school'],'専門学校');
+  add(['trung tâm tiếng nhật','trung tam tieng nhat','pusat bahasa jepang','japanese language school'],'日本語学校');
+  add(['tốt nghiệp','tot nghiep','lulus','graduated','tamat'],'卒業');
+  add(['nhập học','nhap hoc','masuk','enrolled','入学'],'入学');
+  add(['tiếng nhật','tieng nhat','bahasa jepang','japanese language'],'日本語');
+  // Certificates
+  add(['hợp cách','hop cach','lulus','pass','passed','合格'],'合格');
+  add(['không hợp cách','khong hop cach','tidak lulus','failed','fail'],'不合格');
+  add(['bằng lái xe','bang lai xe','SIM','driver license','driving license'],'運転免許');
+  // Marital
+  add(['đã kết hôn','da ket hon','menikah','married'],'既婚');
+  add(['chưa kết hôn','chua ket hon','belum menikah','single','unmarried'],'未婚');
+  return d;
+})();
+
+// Lang code map for API
+const LANG_MAP={vi:'vi',id:'id',km:'km',ne:'ne',mn:'mn',zh:'zh-CN',my:'my',th:'th',bn:'bn'};
+
+// Translate text to Japanese: dictionary first, then free API fallback
+async function toJP(text){
+  if(!text||!text.trim())return text;
+  const trimmed=text.trim();
+  // Already Japanese (contains kanji/katakana/hiragana)?
+  if(/[\u3000-\u9FFF\uF900-\uFAFF]/.test(trimmed))return trimmed;
+  // Check dictionary (exact match, case insensitive)
+  const lower=trimmed.toLowerCase();
+  if(JP_DICT[lower])return JP_DICT[lower];
+  // Check if text contains dictionary words — replace them
+  let result=trimmed;
+  const sorted=Object.keys(JP_DICT).sort((a,b)=>b.length-a.length); // longest first
+  for(const key of sorted){
+    const re=new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi');
+    result=result.replace(re,JP_DICT[key]);
+  }
+  if(result!==trimmed)return result;
+  // Try free MyMemory Translation API as fallback
+  try{
+    const lc=LANG_MAP[lang]||'vi';
+    const url=`https://api.mymemory.translated.net/get?q=${encodeURIComponent(trimmed)}&langpair=${lc}|ja`;
+    const resp=await fetch(url,{signal:AbortSignal.timeout(4000)});
+    const json=await resp.json();
+    if(json.responseStatus===200&&json.responseData&&json.responseData.translatedText){
+      const tr=json.responseData.translatedText;
+      if(tr&&tr!==trimmed&&!tr.includes('PLEASE SELECT'))return tr;
+    }
+  }catch(e){console.log('Translation API unavailable, using original text');}
+  return trimmed;
+}
+
+// Batch translate all form data for Word generation
+async function translateAllForWord(){
+  const td={...data};
+  // Translate key text fields
+  const textFields=['nationality','visa','address'];
+  for(const k of textFields){if(td[k])td[k]=await toJP(td[k]);}
+  // Translate gender/spouse/dependents
+  if(td.gender){const g=td.gender.toLowerCase();td.gender=JP_DICT[g]||td.gender;}
+  if(td.spouse){const s=td.spouse.toLowerCase();td.spouse=JP_DICT[s]||td.spouse;}
+  if(td.dependents){const d=td.dependents.toLowerCase();td.dependents=JP_DICT[d]||td.dependents;}
+  // Translate education rows
+  const tEdu=[];
+  for(const r of eduRows){tEdu.push({start:r.start,end:await toJP(r.end),detail:await toJP(r.detail)});}
+  // Translate work rows
+  const tWork=[];
+  for(const r of workRows){tWork.push({start:r.start,end:await toJP(r.end),country:r.country,visa:r.visa,detail:await toJP(r.detail)});}
+  // Translate license rows
+  const tLic=[];
+  for(const r of licRows){tLic.push({date:r.date,detail:await toJP(r.detail)});}
+  // Translate remarks
+  if(td.remarks)td.remarks=await toJP(td.remarks);
+  return{data:td,eduRows:tEdu,workRows:tWork,licRows:tLic};
+}
+
+// =========================================================
 //  WORD GENERATION
 // =========================================================
 async function generateWord(){
@@ -540,7 +692,10 @@ async function generateWord(){
   const today=new Date(),yy=today.getFullYear(),mm=String(today.getMonth()+1).padStart(2,'0'),dd=String(today.getDate()).padStart(2,'0');
   let photoBlob=null;
   if(photoData){try{const r=await fetch(photoData);photoBlob=await r.arrayBuffer();}catch(e){}}
-  async function imgBlob(dataUrl){try{const r=await fetch(dataUrl);return await r.arrayBuffer();}catch(e){return null;}}
+
+  // Auto-translate all text to Japanese
+  const tr=await translateAllForWord();
+  const D=tr.data, tEduRows=tr.eduRows, tWorkRows=tr.workRows, tLicRows=tr.licRows;
 
   const DC=[];
 
@@ -560,7 +715,7 @@ async function generateWord(){
   const nameW=W1+W2+W3; // middle cols for name
   t0rows.push(new TableRow({height:{value:194,rule:HeightRule.AT_LEAST},children:[
     mkCell("ふりがな",W0,{size:16}),
-    mkCell(data.furigana||'',nameW,{cs:3,size:18}),
+    mkCell(D.furigana||'',nameW,{cs:3,size:18}),
     photoBlob?new TableCell({width:{size:photoW,type:WidthType.DXA},borders,verticalAlign:VerticalAlign.CENTER,rowSpan:2,columnSpan:2,children:[
       new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:photoBlob,transformation:{width:90,height:120},type:'png'})]})
     ]}):mkCell("写真\n(3×4cm)",photoW,{cs:2,rs:2,center:true,size:16,color:"999999"})
@@ -569,13 +724,13 @@ async function generateWord(){
   // Row 2: 氏名 + full name (photo continues via rowSpan)
   t0rows.push(new TableRow({height:{value:491,rule:HeightRule.AT_LEAST},children:[
     mkCell("氏　名",W0,{bold:true,size:18}),
-    mkCell(data.fullname||'',nameW,{cs:3,size:28,bold:true,font:F2})
+    mkCell(D.fullname||'',nameW,{cs:3,size:28,bold:true,font:F2})
   ]}));
 
   // Row 3: 生年月日 (span 3~5 cols) + 性別
-  const dobStr=data.dob?(()=>{const d=new Date(data.dob);const age=yy-d.getFullYear();return`${d.getFullYear()}年　${String(d.getMonth()+1).padStart(2,'0')}月　${String(d.getDate()).padStart(2,'0')}日生 （満${age}歳）`;})():'';
-  const genderVal=(data.gender||'').replace(/ .*/,'');
-  const genderJp=genderVal==='男'||genderVal==='Male'||genderVal==='Nam'?'男性':genderVal==='女'||genderVal==='Female'||genderVal==='Nữ'?'女性':genderVal;
+  const dobStr=D.dob?(()=>{const d=new Date(D.dob);const age=yy-d.getFullYear();return`${d.getFullYear()}年　${String(d.getMonth()+1).padStart(2,'0')}月　${String(d.getDate()).padStart(2,'0')}日生 （満${age}歳）`;})():'';
+  const genderRaw=(D.gender||'');
+  const genderJp=JP_DICT[genderRaw.toLowerCase()]||(/男/.test(genderRaw)?'男性':/女/.test(genderRaw)?'女性':genderRaw);
   t0rows.push(new TableRow({height:{value:324,rule:HeightRule.AT_LEAST},children:[
     mkCell(dobStr,W0+W1+W2+W3+W4,{cs:5,size:20}),
     mkCell(`性別　${genderJp}`,W5,{size:20,center:true})
@@ -583,26 +738,28 @@ async function generateWord(){
 
   // Row 4: 現住所 label with postcode (span all 6)
   t0rows.push(new TableRow({height:{value:216,rule:HeightRule.AT_LEAST},children:[
-    mkCell(`現住所（〒${data.postcode||'　　　-　　　'}）`,TW,{cs:6,size:18})
+    mkCell(`現住所（〒${D.postcode||'　　　-　　　'}）`,TW,{cs:6,size:18})
   ]}));
 
   // Row 5: Address detail (span all 6)
   t0rows.push(new TableRow({height:{value:364,rule:HeightRule.AT_LEAST},children:[
-    mkCell(data.address||'',TW,{cs:6,size:20})
+    mkCell(D.address||'',TW,{cs:6,size:20})
   ]}));
 
   // Row 6: 在留資格 (span all 6)
-  const veStr=data.visa_exp?(()=>{const d=new Date(data.visa_exp);return`${d.getFullYear()}年${String(d.getMonth()+1).padStart(2,'0')}月${String(d.getDate()).padStart(2,'0')}日`;})():'';
+  const veStr=D.visa_exp?(()=>{const d=new Date(D.visa_exp);return`${d.getFullYear()}年${String(d.getMonth()+1).padStart(2,'0')}月${String(d.getDate()).padStart(2,'0')}日`;})():'';
   t0rows.push(new TableRow({height:{value:358,rule:HeightRule.AT_LEAST},children:[
-    mkCell(`在留資格　　${data.visa||''}（${veStr}）`,TW,{cs:6,size:20})
+    mkCell(`在留資格　　${D.visa||''}（${veStr}）`,TW,{cs:6,size:20})
   ]}));
 
   // Row 7: 国籍 | value | 配偶者 (span3) | 扶養者
-  const sv2=(data.spouse||'').includes('有')||(data.spouse||'').includes('Có')?'有':'無';
-  const dv2=(data.dependents||'').includes('有')||(data.dependents||'').includes('Có')?'有':'無';
+  const spRaw=(D.spouse||'').toLowerCase();
+  const sv2=spRaw.includes('有')||spRaw.includes('có')||spRaw.includes('ya')||spRaw.includes('yes')?'有':'無';
+  const dpRaw=(D.dependents||'').toLowerCase();
+  const dv2=dpRaw.includes('有')||dpRaw.includes('có')||dpRaw.includes('ya')||dpRaw.includes('yes')?'有':'無';
   t0rows.push(new TableRow({height:{value:389,rule:HeightRule.AT_LEAST},children:[
     mkCell("国籍",W0,{size:18}),
-    mkCell(data.nationality||'',W1,{size:20}),
+    mkCell(D.nationality||'',W1,{size:20}),
     mkCell(`配偶者:　${sv2}`,W2+W3+W4,{cs:3,size:20}),
     mkCell(`扶養者:　${dv2}`,W5,{size:20})
   ]}));
@@ -625,8 +782,8 @@ async function generateWord(){
     mkCell("学歴",W2+W3+W4+W5,{cs:4,center:true,bold:true,size:20})
   ]}));
 
-  // Education rows
-  eduRows.filter(r=>r.detail).forEach(r=>{
+  // Education rows (translated)
+  tEduRows.filter(r=>r.detail).forEach(r=>{
     t0rows.push(new TableRow({height:{value:417,rule:HeightRule.AT_LEAST},children:[
       mkCell(r.start?r.start.replace('/','年')+'月':'',W0,{center:true,size:18}),
       mkCell(r.end?r.end.replace('/','年')+'月':'',W1,{center:true,size:18}),
@@ -646,10 +803,10 @@ async function generateWord(){
     mkCell("職歴",W2+W3+W4+W5,{cs:4,center:true,bold:true,size:20})
   ]}));
 
-  // Work rows — include country prefix and visa like template
-  workRows.filter(r=>r.detail).forEach(r=>{
-    const endVal=r.end===t('current')||r.end==='現在'?'現在':r.end?r.end.replace('/','年')+'月':'';
-    const countryPrefix=r.country==='jp'?'（日本）':r.country==='other'?'':'（'+((data.nationality||'').replace(/\s*\d+.*/,'')|| '')+'）';
+  // Work rows — translated, include country prefix and visa
+  tWorkRows.filter(r=>r.detail).forEach(r=>{
+    const endVal=r.end==='現在'?'現在':r.end?r.end.replace('/','年')+'月':'';
+    const countryPrefix=r.country==='jp'?'（日本）':r.country==='other'?'':'（'+(D.nationality||'')+'）';
     const visaSuffix=r.country==='jp'&&r.visa?'（'+r.visa+'）':'';
     const workText=countryPrefix+r.detail+(visaSuffix?'\n'+visaSuffix:'');
     t0rows.push(new TableRow({height:{value:645,rule:HeightRule.AT_LEAST},children:[
@@ -678,7 +835,7 @@ async function generateWord(){
     mkCell("免　許 ・ 資　格",LW1,{bold:true,size:18,center:true})
   ]}));
 
-  licRows.filter(r=>r.detail).forEach(r=>{
+  tLicRows.filter(r=>r.detail).forEach(r=>{
     let dt=r.detail||'';
     if(!/合格|不合格|判定|取得/.test(dt)&&dt) dt+='　　　　　　　　　　　　　合格';
     lR.push(new TableRow({height:{value:458,rule:HeightRule.AT_LEAST},children:[
@@ -704,41 +861,10 @@ async function generateWord(){
   // ============================================================
   DC.push(new Table({rows:[new TableRow({height:{value:665,rule:HeightRule.AT_LEAST},children:[
     mkCell("備考",1838,{bold:true,size:18,vtop:true}),
-    mkCell(data.remarks||'',8652,{size:20,vtop:true})
+    mkCell(D.remarks||'',8652,{size:20,vtop:true})
   ]})],width:{size:TW,type:WidthType.DXA}}));
 
-  // ============================================================
-  //  Attached images: 在留カード + certificates
-  // ============================================================
-  const allImgSections=[];
-  if(zairyuFront.length||zairyuBack.length){
-    allImgSections.push(new Paragraph({spacing:{before:300,after:100},children:[new TextRun({text:"在留カード（写真）",bold:true,size:24,font:F})]}));
-    for(const f of [...zairyuFront,...zairyuBack]){
-      if(f.data.startsWith('data:image/')){
-        const ab=await imgBlob(f.data);
-        if(ab)allImgSections.push(new Paragraph({spacing:{after:100},children:[new ImageRun({data:ab,transformation:{width:300,height:190},type:'png'})]}));
-      } else {
-        allImgSections.push(new Paragraph({spacing:{after:60},children:[new TextRun({text:`※ 添付ファイル: ${f.name}`,size:18,font:F,italics:true,color:"666666"})]}));
-      }
-    }
-  }
-
-  const certLabels={certSenmon:'専門級',certLicense:'運転免許',certJlpt:'日本語証明書',certTokutei:'特定技能',certOther:'その他'};
-  for(const[key,arr] of Object.entries(certFiles)){
-    if(!arr.length)continue;
-    allImgSections.push(new Paragraph({spacing:{before:200,after:80},children:[new TextRun({text:`${certLabels[key]||key}`,bold:true,size:22,font:F})]}));
-    for(const f of arr){
-      if(f.data.startsWith('data:image/')){
-        const ab=await imgBlob(f.data);
-        if(ab)allImgSections.push(new Paragraph({spacing:{after:80},children:[new ImageRun({data:ab,transformation:{width:280,height:180},type:'png'})]}));
-      } else {
-        allImgSections.push(new Paragraph({spacing:{after:40},children:[new TextRun({text:`※ 添付ファイル: ${f.name}`,size:18,font:F,italics:true,color:"666666"})]}));
-      }
-    }
-  }
-
-  if(allImgSections.length) DC.push(...allImgSections);
-
+  // Images/certificates are NOT embedded in Word — they go in the ZIP separately
   DC.push(new Paragraph({spacing:{before:200},children:[new TextRun({text:"YourBright Co., Ltd.",size:16,font:F,color:"888888"})]}));
 
   return await Packer.toBlob(new Document({sections:[{properties:{page:{size:{width:11906,height:16838},margin:{top:567,right:567,bottom:567,left:567}}},children:DC}]}));
@@ -771,12 +897,23 @@ async function doDownloadZip(){
 async function doEmailZip(){
   const sel=getSelectedEmails();if(!sel.length){alert('Please select email!');return;}
   showLoading();
-  try{const z=await createZip();const nm=(data.fullname||'profile').replace(/\s+/g,'_');saveAs(z,`履歴書_${nm}_${new Date().toISOString().slice(0,10)}.zip`);hideLoading();
-  const s=encodeURIComponent(`履歴書 - ${data.fullname||''}`);
-  const b=encodeURIComponent(`履歴書を送付いたします。\n\n氏名: ${data.fullname||'-'}\n国籍: ${data.nationality||'-'}\n\n※ ZIPファイルを添付してください\n\n---\nYourBright Co., Ltd.`);
-  window.open(`mailto:${sel.join(',')}?subject=${s}&body=${b}`,'_blank');
-  setTimeout(()=>alert(t('emailReady')),500);showSuccess();}
-  catch(e){hideLoading();alert('Error: '+e.message);console.error(e);}
+  try{
+    const z=await createZip();
+    const nm=(data.fullname||'profile').replace(/\s+/g,'_');
+    const fname=`履歴書_${nm}_${new Date().toISOString().slice(0,10)}.zip`;
+    saveAs(z,fname);
+    hideLoading();
+    const s=encodeURIComponent(`履歴書 - ${data.fullname||''}`);
+    const b=encodeURIComponent(`履歴書を送付いたします。\n\n氏名: ${data.fullname||'-'}\n国籍: ${data.nationality||'-'}\n在留資格: ${data.visa||'-'}\n\n※ ZIPファイルを添付してください（履歴書Word + 在留カード + 証明書）\n\n---\nYourBright Co., Ltd.`);
+    // Small delay to ensure download completes before opening email
+    setTimeout(()=>{
+      window.open(`mailto:${sel.join(',')}?subject=${s}&body=${b}`,'_blank');
+      // Show step-by-step guide instead of simple alert
+      const guide=`${t('emailStep1')||'1. ZIP downloaded'}\n${t('emailStep2')||'2. Attach ZIP to email'}\n${t('emailStep3')||'3. Send email'}\n\n📎 ${fname}`;
+      alert(guide);
+      showSuccess();
+    },800);
+  }catch(e){hideLoading();alert('Error: '+e.message);console.error(e);}
 }
 function showSuccess(){document.getElementById('reviewArea').classList.add('hidden');document.getElementById('successArea').classList.remove('hidden');}
 function restart(){data={};photoData=null;zairyuFront=[];zairyuBack=[];certFiles={certSenmon:[],certLicense:[],certJlpt:[],certTokutei:[],certOther:[]};eduRows=[{start:'',end:'',detail:''}];workRows=[{start:'',end:'',country:'home',visa:'',detail:''}];licRows=[{date:'',detail:''}];step=0;document.getElementById('successArea').classList.add('hidden');document.getElementById('welcomeScreen').classList.remove('hidden');document.getElementById('langSection').classList.remove('hidden');document.getElementById('progressSection').classList.add('hidden');document.getElementById('navButtons').classList.add('hidden');updateUI();}
